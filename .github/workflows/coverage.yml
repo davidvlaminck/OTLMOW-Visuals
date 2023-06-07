@@ -21,6 +21,10 @@ jobs:
         uses: py-actions/py-dependency-install@v4
         with:
           path: "requirements.txt"
+      - name: Install Python dependencies for coverage
+        uses: py-actions/py-dependency-install@v4
+        with:
+          path: "requirements_coverage.txt"
       - name: Run unittests with pytest and coverage
         run: python -m pytest --cov -v --cov-report=html
       - name: Coverage Badge.
