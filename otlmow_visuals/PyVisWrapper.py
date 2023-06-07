@@ -20,7 +20,14 @@ def remove_duplicates_in_iterable_based_on_asset_id(list_of_objects: [OTLObject]
 
 
 class PyVisWrapper:
-    def __init__(self):
+    def __init__(self, notebook_mode: bool = False):
+        self.notebook_mode = notebook_mode
+        self.relatie_color_dict = {
+            'red': Voedt,
+            'black': Bevestiging,
+            'green': Sturing,
+            'orange': HoortBij,
+            'purple': VoedtAangestuurd}
         self.list_of_colors = ["#E5E5E5", "#CCCCCC", "#B2B2B2", "#999999", "#808080", "#666666", "#4D4D4D", "#333333",
                                "#E8E3E3",
                                "#EBE0E0", "#EDDEDE", "#F0DBDB", "#F2D9D9", "#F5D6D6", "#F7D4D4", "#FAD1D1", "#FCCFCF",
@@ -239,28 +246,29 @@ class PyVisWrapper:
         self.color_dict = {}
 
     def show(self, list_of_objects):
-        g = networkx.Network(height='100%', width='100%', heading='', directed=True)
+        g = networkx.Network(directed=True)
         nodes_created = self.create_nodes(g, list_of_objects)
         self.create_edges(g, list_of_objects=list_of_objects, nodes=nodes_created)
         options = 'options = {"nodes": {"font":{"bold":{"size": 18}}}, "interaction": {"dragView": true}, "physics": {"solver": "barnesHut", "stabilization": true, "barnesHut" : {"centralGravity" : 0, "springLength" : 100, "avoidOverlap" : 0.05,"gravitationalConstant" : -2500}}}'
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
         g.set_options(options)
 
-        g.show('example.html', notebook=False)
+        g.show('example.html', notebook=self.notebook_mode)
+        self.modify_html('example.html')
         display(HTML('example.html'))
 
     def create_nodes(self, g, list_of_objects):
+
+        list_of_objects = filter(lambda o: not isinstance(o, RelatieObject), list_of_objects)
+        list_of_objects = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
+
         nodes = []
         index = 0
         for otl_object in list_of_objects:
-            if isinstance(otl_object, RelatieObject):
-                continue
-
             naam = otl_object.__class__.__name__ + '_' + otl_object.assetId.identificator[0:36]
             if hasattr(otl_object, 'naam'):
                 naam = otl_object.naam
-            # if hasattr(otl_object, 'naampad'):
-            #     naam = otl_object.naampad
+
             selected_color = self.random_color_if_not_in_dict(otl_object.typeURI)
 
             tooltip = self.get_tooltip(otl_object)
@@ -282,38 +290,25 @@ class PyVisWrapper:
         return nodes
 
     def create_edges(self, g, list_of_objects, nodes):
-        relaties = list(filter(lambda o: isinstance(o, RelatieObject), list_of_objects))
+        relaties = filter(lambda o: isinstance(o, RelatieObject), list_of_objects)
         asset_ids = list(map(lambda x: x.assetId.identificator, nodes))
 
-        for relatie in relaties:
-            relatie.assetIdIdentificator = relatie.assetId.identificator
-        remove_duplicates_in_iterable_based_on_asset_id(relaties)
-        for relatie in relaties:
-            del relatie.assetIdIdentificator
+        relaties = remove_duplicates_in_iterable_based_on_asset_id(relaties)
 
         for relatie in relaties:
             if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:  # only display relations between assets that are displayed
                 g.add_edge(source=relatie.bronAssetId.identificator,
                            to=relatie.doelAssetId.identificator,
                            color=self.map_relation_to_color(relatie),
-                           width=2,
-                           arrowsize=0.5)
+                           width=2)
                 if isinstance(relatie, NietDirectioneleRelatie):
                     g.add_edge(to=relatie.bronAssetId.identificator,
                                source=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
-                               width=2, arrowsize=0.5)
+                               width=2)
 
-    @staticmethod
-    def map_relation_to_color(relatie) -> str:
-        relatie_color_dict = {
-            'red': Voedt,
-            'black': Bevestiging,
-            'green': Sturing,
-            'orange': HoortBij,
-            'purple': VoedtAangestuurd}
-
-        for k, v in relatie_color_dict.items():
+    def map_relation_to_color(self, relatie) -> str:
+        for k, v in self.relatie_color_dict.items():
             if isinstance(relatie, v):
                 return k
         return 'brown'
@@ -329,6 +324,33 @@ class PyVisWrapper:
     @staticmethod
     def get_tooltip(otl_object):
         html = str(otl_object).replace('<', '').replace('>', '').replace('\n', '<br/>').replace(' ', '&nbsp;')
-        return f' htmlTitle("<div style="font-family: monospace;">{html}</div>")'
+        return f'<htmlTitle>("<div style="font-family: monospace;">{html}</div>")<htmlTitleEnd>'
 
+    def modify_html(self, file_path):
+        with open(file_path, 'r') as file:
+            file_data = file.readlines()
+
+        index_of_function = -1
+        index_of_nodes = -1
+        for index, line in enumerate(file_data):
+            if index_of_function == -1 and '// This method is responsible for drawing the graph, returns the drawn network' in line:
+                index_of_function = index
+            if index_of_nodes == -1 and 'nodes = new vis.DataSet' in line:
+                index_of_nodes = index
+
+        nodes_line = file_data.pop(index_of_nodes)
+        nodes_line = nodes_line.replace('"\\u003chtmlTitle\\u003e(\\\"', 'htmlTitle("').\
+            replace('\\\")\\u003chtmlTitleEnd\\u003e"', '")').replace('\\u003c', '<').replace('\\u003e', '>')
+        file_data.insert(index_of_nodes, nodes_line)
+
+        file_data.insert(index_of_function-2, '              // text to html element\n')
+        file_data.insert(index_of_function-1, '              function htmlTitle(html) {' + '\n')
+        file_data.insert(index_of_function, '                const container = document.createElement("div");'+ '\n')
+        file_data.insert(index_of_function+1, '                container.innerHTML = html;'+ '\n')
+        file_data.insert(index_of_function+2, '                return container;'+ '\n')
+        file_data.insert(index_of_function+3, '              }'+ '\n')
+
+        with open(file_path, 'w') as file:
+            for line in file_data:
+                file.write(line)
 
