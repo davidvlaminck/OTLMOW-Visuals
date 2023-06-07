@@ -1,7 +1,22 @@
 from random import choice
 
 from IPython.display import display, HTML
+from otlmow_model.BaseClasses.OTLObject import OTLObject
+from otlmow_model.Classes.ImplementatieElement.NietDirectioneleRelatie import NietDirectioneleRelatie
+from otlmow_model.Classes.ImplementatieElement.RelatieObject import RelatieObject
+from otlmow_model.Classes.Onderdeel.Bevestiging import Bevestiging
+from otlmow_model.Classes.Onderdeel.HoortBij import HoortBij
+from otlmow_model.Classes.Onderdeel.Sturing import Sturing
+from otlmow_model.Classes.Onderdeel.Voedt import Voedt
+from otlmow_model.Classes.Onderdeel.VoedtAangestuurd import VoedtAangestuurd
 from pyvis import network as networkx
+
+
+def remove_duplicates_in_iterable_based_on_asset_id(list_of_objects: [OTLObject]) -> [OTLObject]:
+    unique = {}
+    for elem in list_of_objects:
+        unique.setdefault(elem.assetId.identificator, elem)
+    return list(unique.values())
 
 
 class PyVisWrapper:
@@ -225,18 +240,22 @@ class PyVisWrapper:
 
     def show(self, list_of_objects):
         g = networkx.Network(height='100%', width='100%', heading='', directed=True)
-        self.create_nodes(g, list_of_objects)
-        self.create_edges(g, list_of_objects)
+        nodes_created = self.create_nodes(g, list_of_objects)
+        self.create_edges(g, list_of_objects=list_of_objects, nodes=nodes_created)
         options = 'options = {"nodes": {"font":{"bold":{"size": 18}}}, "interaction": {"dragView": true}, "physics": {"solver": "barnesHut", "stabilization": true, "barnesHut" : {"centralGravity" : 0, "springLength" : 100, "avoidOverlap" : 0.05,"gravitationalConstant" : -2500}}}'
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
         g.set_options(options)
 
-        g.show('example.html')
+        g.show('example.html', notebook=False)
         display(HTML('example.html'))
 
     def create_nodes(self, g, list_of_objects):
-        otl_objects = list(filter(lambda o: not isinstance(o, RelatieObject), list_of_objects))
-        for otl_object in otl_objects:
+        nodes = []
+        index = 0
+        for otl_object in list_of_objects:
+            if isinstance(otl_object, RelatieObject):
+                continue
+
             naam = otl_object.__class__.__name__ + '_' + otl_object.assetId.identificator[0:36]
             if hasattr(otl_object, 'naam'):
                 naam = otl_object.naam
@@ -253,17 +272,22 @@ class PyVisWrapper:
                        label=naam,
                        shape=shape,
                        size=20,
-                       color=selected_color,
-                       title=tooltip)
+                       color=selected_color)
 
-    def create_edges(self, g, list_of_objects):
+            g.nodes[index]['title'] = tooltip
+
+            nodes.append(otl_object)
+            index += 1
+
+        return nodes
+
+    def create_edges(self, g, list_of_objects, nodes):
         relaties = list(filter(lambda o: isinstance(o, RelatieObject), list_of_objects))
-        otl_assets = list(filter(lambda o: not isinstance(o, RelatieObject), list_of_objects))
-        asset_ids = list(map(lambda x: x.assetId.identificator, otl_assets))
+        asset_ids = list(map(lambda x: x.assetId.identificator, nodes))
 
         for relatie in relaties:
             relatie.assetIdIdentificator = relatie.assetId.identificator
-        relaties = GenericHelper.remove_duplicates_in_iterable_based_on_property(relaties, 'assetIdIdentificator')
+        remove_duplicates_in_iterable_based_on_asset_id(relaties)
         for relatie in relaties:
             del relatie.assetIdIdentificator
 
@@ -304,5 +328,7 @@ class PyVisWrapper:
 
     @staticmethod
     def get_tooltip(otl_object):
-        html = otl_object.info().replace('\n', '<br/>').replace(' ', '&nbsp;')
-        return '<div style="font-family: monospace;"</div>' + html
+        html = str(otl_object).replace('<', '').replace('>', '').replace('\n', '<br/>').replace(' ', '&nbsp;')
+        return f' htmlTitle("<div style="font-family: monospace;">{html}</div>")'
+
+
