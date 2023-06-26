@@ -255,7 +255,8 @@ class PyVisWrapper:
 
         g.show('example.html', notebook=self.notebook_mode)
         self.modify_html('example.html')
-        display(HTML('example.html'))
+        if not self.notebook_mode:
+            display(HTML('example.html'))
 
     def create_nodes(self, g, list_of_objects):
 

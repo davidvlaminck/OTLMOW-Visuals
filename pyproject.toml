@@ -27,7 +27,10 @@ classifiers = [
 
 ]
 requires-python = ">=3.8"
-dependencies = ["otlmow-model", "pyvis"]
+dependencies = [
+    'pyvis >= 0.3.2',
+    'otlmow_model >= 2.7.6',
+]
 
 [tool.setuptools.packages.find]
 include = ["otlmow_visuals*"]
