@@ -2,9 +2,9 @@ from pathlib import Path
 from random import choice
 
 from IPython.display import display, HTML
-from otlmow_model.BaseClasses.OTLObject import OTLObject
-from otlmow_model.Classes.ImplementatieElement.NietDirectioneleRelatie import NietDirectioneleRelatie
-from otlmow_model.Classes.ImplementatieElement.RelatieObject import RelatieObject
+from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject
+from otlmow_model.OtlmowModel.Classes.ImplementatieElement.NietDirectioneleRelatie import NietDirectioneleRelatie
+from otlmow_model.OtlmowModel.Classes.ImplementatieElement.RelatieObject import RelatieObject
 from pyvis import network as networkx
 
 

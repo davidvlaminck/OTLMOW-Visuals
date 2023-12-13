@@ -1,4 +1,4 @@
-from otlmow_model.Classes.Onderdeel.Aftakking import Aftakking
+from otlmow_model.OtlmowModel.Classes.Onderdeel.Aftakking import Aftakking
 
 from otlmow_visuals.PyVisWrapper import remove_duplicates_in_iterable_based_on_asset_id
 

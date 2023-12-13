@@ -1,4 +1,4 @@
-otlmow-model>=2.7.6
+otlmow-model>=2.9.2
 pyvis>=0.3.2
 pytest~=7.3.1
 ipython>=8.0.0

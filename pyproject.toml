@@ -29,7 +29,7 @@ classifiers = [
 requires-python = ">=3.8"
 dependencies = [
     'pyvis >= 0.3.2',
-    'otlmow_model >= 2.9.0',
+    'otlmow_model >= 2.9.2',
 ]
 
 [tool.setuptools.packages.find]
