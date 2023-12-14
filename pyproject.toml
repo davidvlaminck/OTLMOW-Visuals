@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "otlmow_visuals"
-version = "0.3"
+version = "0.4"
 authors = [{name = "David Vlaminck", email = "david.vlaminck@mow.vlaanderen.be"}]
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -29,7 +29,7 @@ classifiers = [
 requires-python = ">=3.8"
 dependencies = [
     'pyvis >= 0.3.2',
-    'otlmow_model >= 2.9.2',
+    'otlmow_model >= 2.9.5.0',
 ]
 
 [tool.setuptools.packages.find]

@@ -1,10 +1,10 @@
+import webbrowser
 from pathlib import Path
 from random import choice
 
 from IPython.display import display, HTML
 from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject
-from otlmow_model.OtlmowModel.Classes.ImplementatieElement.NietDirectioneleRelatie import NietDirectioneleRelatie
-from otlmow_model.OtlmowModel.Classes.ImplementatieElement.RelatieObject import RelatieObject
+from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
 from pyvis import network as networkx
 
 
@@ -143,22 +143,29 @@ class PyVisWrapper:
 
     def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), launch_html: bool = True):
         g = networkx.Network(directed=True)
-        nodes_created = self.create_nodes(g, list_of_objects)
-        self.create_edges(g, list_of_objects=list_of_objects, nodes=nodes_created)
+
+        assets = []
+        relations = []
+        for o in list_of_objects:
+            if is_relation(o):
+                relations.append(o)
+            else:
+                assets.append(o)
+
+        nodes_created = self.create_nodes(g, assets)
+        self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
         options = ('options = {"nodes": {"font":{"bold":{"size": 18}}}, "interaction": {"dragView": true}, "physics": '
                    '{"solver": "barnesHut", "stabilization": true, "barnesHut" : {"centralGravity" : 0, '
                    '"springLength" : 100, "avoidOverlap" : 0.05,"gravitationalConstant" : -2500}}}')
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
         g.set_options(options)
 
-        g.show(str(html_path), notebook=self.notebook_mode)
+        g.write_html(str(html_path), notebook=self.notebook_mode)
         self.modify_html(Path(html_path))
         if not self.notebook_mode and launch_html:
-            display(HTML(str(html_path)))
+            webbrowser.open(str(html_path))
 
     def create_nodes(self, g, list_of_objects: [OTLObject]) -> [OTLObject]:
-
-        list_of_objects = filter(lambda o: not isinstance(o, RelatieObject), list_of_objects)
         list_of_objects = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         nodes = []
@@ -186,10 +193,8 @@ class PyVisWrapper:
         return nodes
 
     def create_edges(self, g, list_of_objects: [OTLObject], nodes) -> None:
-        relaties = filter(lambda o: isinstance(o, RelatieObject), list_of_objects)
         asset_ids = list(map(lambda x: x.assetId.identificator, nodes))
-
-        relaties = remove_duplicates_in_iterable_based_on_asset_id(relaties)
+        relaties = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         for relatie in relaties:
             if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
@@ -198,7 +203,7 @@ class PyVisWrapper:
                            to=relatie.doelAssetId.identificator,
                            color=self.map_relation_to_color(relatie),
                            width=2)
-                if isinstance(relatie, NietDirectioneleRelatie):
+                if not is_directional_relation(relatie):
                     g.add_edge(to=relatie.bronAssetId.identificator,
                                source=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
