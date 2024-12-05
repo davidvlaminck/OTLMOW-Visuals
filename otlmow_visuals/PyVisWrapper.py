@@ -155,8 +155,10 @@ class PyVisWrapper:
         self.color_dict = {}
 
     def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), launch_html: bool = True,
-             notebook_mode: bool = False) -> None:
-        g = networkx.Network(directed=True, notebook=notebook_mode)
+             notebook_mode: bool = False, **kwargs) -> None:
+        if notebook_mode and kwargs.get('cdn_resources') != 'in_line':
+            kwargs['cdn_resources'] = 'in_line'
+        g = networkx.Network(directed=True, notebook=notebook_mode, **kwargs)
 
         assets = []
         relations = []
