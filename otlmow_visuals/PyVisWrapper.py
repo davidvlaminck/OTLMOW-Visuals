@@ -2,7 +2,6 @@ import webbrowser
 from pathlib import Path
 from random import choice
 
-from IPython.display import display, HTML
 from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
 from pyvis import network as networkx
@@ -11,7 +10,10 @@ from pyvis import network as networkx
 def remove_duplicates_in_iterable_based_on_asset_id(list_of_objects: [OTLObject]) -> [OTLObject]:
     unique = {}
     for elem in list_of_objects:
-        unique.setdefault(elem.assetId.identificator, elem)
+        if elem.typeURI == 'http://purl.org/dc/terms/Agent':
+            unique.setdefault(elem.agentId.identificator, elem)
+        else:
+            unique.setdefault(elem.assetId.identificator, elem)
     return list(unique.values())
 
 
@@ -152,8 +154,9 @@ class PyVisWrapper:
             "#521433", "#570F33", "#5C0A33", "#610533", "#660033")
         self.color_dict = {}
 
-    def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), launch_html: bool = True):
-        g = networkx.Network(directed=True)
+    def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), launch_html: bool = True,
+             notebook_mode: bool = False) -> None:
+        g = networkx.Network(directed=True, notebook=notebook_mode)
 
         assets = []
         relations = []
@@ -181,21 +184,32 @@ class PyVisWrapper:
 
         nodes = []
         for index, otl_object in enumerate(list_of_objects):
-            naam = f'{otl_object.__class__.__name__}_{otl_object.assetId.identificator[:36]}'
+            if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+                naam = f'{otl_object.__class__.__name__}_{otl_object.agentId.identificator[:36]}'
+            else:
+                naam = f'{otl_object.__class__.__name__}_{otl_object.assetId.identificator[:36]}'
             if hasattr(otl_object, 'naam'):
                 naam = otl_object.naam
 
             selected_color = self.random_color_if_not_in_dict(otl_object.typeURI)
 
             tooltip = self.get_tooltip(otl_object)
+            size = 20
             shape = 'square'
             if otl_object.typeURI.startswith('https://lgc.'):
                 shape = 'dot'
+            elif otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+                shape = 'diamond'
+                size = 30
 
-            g.add_node(otl_object.assetId.identificator,
+            if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+                node_id = otl_object.agentId.identificator
+            else:
+                node_id = otl_object.assetId.identificator
+            g.add_node(node_id,
                        label=naam,
                        shape=shape,
-                       size=20,
+                       size=size,
                        color=selected_color)
 
             g.nodes[index]['title'] = tooltip
@@ -203,8 +217,16 @@ class PyVisWrapper:
             nodes.append(otl_object)
         return nodes
 
+    @classmethod
+    def get_all_ids_from_objects(cls, nodes: [OTLObject]) -> [str]:
+        for node in nodes:
+            if node.typeURI == 'http://purl.org/dc/terms/Agent':
+                yield node.agentId.identificator
+            else:
+                yield node.assetId.identificator
+
     def create_edges(self, g, list_of_objects: [OTLObject], nodes) -> None:
-        asset_ids = list(map(lambda x: x.assetId.identificator, nodes))
+        asset_ids = list(self.get_all_ids_from_objects(nodes))
         relaties = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         for relatie in relaties:
@@ -225,7 +247,10 @@ class PyVisWrapper:
 
     def random_color_if_not_in_dict(self, type_uri: str) -> str:
         if type_uri not in self.color_dict.keys():
-            random_color = choice(self.list_of_colors)
+            if type_uri == 'http://purl.org/dc/terms/Agent':
+                random_color = '#FFA500'
+            else:
+                random_color = choice(self.list_of_colors)
             while random_color in self.color_dict.values():
                 random_color = choice(self.list_of_colors)
             self.color_dict[type_uri] = random_color
