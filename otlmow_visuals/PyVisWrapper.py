@@ -199,10 +199,10 @@ class PyVisWrapper:
             size = 20
             shape = 'square'
             if otl_object.typeURI.startswith('https://lgc.'):
-                shape = 'dot'
-            elif otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
                 shape = 'diamond'
-                size = 30
+            elif otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+                shape = 'dot'
+                size = 20
 
             if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
                 node_id = otl_object.agentId.identificator
@@ -234,11 +234,19 @@ class PyVisWrapper:
         for relatie in relaties:
             if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
                 # only display relations between assets that are displayed
-                g.add_edge(source=relatie.bronAssetId.identificator,
-                           to=relatie.doelAssetId.identificator,
-                           color=self.map_relation_to_color(relatie),
-                           width=2)
-                if not is_directional_relation(relatie):
+                if is_directional_relation(relatie):
+                    if (relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
+                            and relatie.rol is not None):
+                        g.add_edge(source=relatie.bronAssetId.identificator,
+                                   to=relatie.doelAssetId.identificator,
+                                   color=self.map_relation_to_color(relatie),
+                                   width=2, arrowStrikethrough=False, label=relatie.rol)
+                    else:
+                        g.add_edge(source=relatie.bronAssetId.identificator,
+                                   to=relatie.doelAssetId.identificator,
+                                   color=self.map_relation_to_color(relatie),
+                                   width=2, arrowStrikethrough=False)
+                else:
                     g.add_edge(to=relatie.bronAssetId.identificator,
                                source=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
