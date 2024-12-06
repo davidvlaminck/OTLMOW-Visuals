@@ -1,3 +1,4 @@
+import json
 import webbrowser
 from pathlib import Path
 from random import choice
@@ -250,7 +251,7 @@ class PyVisWrapper:
                     g.add_edge(to=relatie.bronAssetId.identificator,
                                source=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
-                               width=2)
+                               width=2, arrowStrikethrough=False, label='remove_arrow')
 
     def map_relation_to_color(self, relatie: OTLObject) -> str:
         return self.relatie_color_dict.get(relatie.typeURI, 'brown')
@@ -279,17 +280,22 @@ class PyVisWrapper:
 
         index_of_function = -1
         index_of_nodes = -1
+        index_of_edges = -1
         for index, line in enumerate(file_data):
             if index_of_function == -1 and ('// This method is responsible for drawing the graph, '
                                             'returns the drawn network') in line:
                 index_of_function = index
-            if index_of_nodes == -1 and 'nodes = new vis.DataSet' in line:
+            elif index_of_nodes == -1 and 'nodes = new vis.DataSet' in line:
                 index_of_nodes = index
+            elif index_of_edges == -1 and 'edges = new vis.DataSet' in line:
+                index_of_edges = index
 
         nodes_line = file_data.pop(index_of_nodes)
         nodes_line = nodes_line.replace('"\\u003chtmlTitle\\u003e(\\\"', 'htmlTitle("'). \
             replace('\\\")\\u003chtmlTitleEnd\\u003e"', '")').replace('\\u003c', '<').replace('\\u003e', '>')
         file_data.insert(index_of_nodes, nodes_line)
+
+        cls.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
 
         file_data.insert(index_of_function - 2, '              // text to html element\n')
         file_data.insert(index_of_function - 1, '              function htmlTitle(html) {' + '\n')
@@ -301,3 +307,18 @@ class PyVisWrapper:
         with open(file_path, 'w') as file:
             for line in file_data:
                 file.write(line)
+
+    @classmethod
+    def modify_edges_in_html(cls, file_data, index_of_edges):
+        if index_of_edges == -1:
+            return
+        edges_line = file_data.pop(index_of_edges)
+        edges_line = edges_line.replace('edges = new vis.DataSet(','').replace(');','')
+        edge_dict_list = json.loads(edges_line)
+        for edge_dict in edge_dict_list:
+            if edge_dict.get('label') == 'remove_arrow':
+                edge_dict['arrows'] = None
+                del edge_dict['label']
+        edges_line = f'edges = new vis.DataSet({json.dumps(edge_dict_list)});'
+        file_data.insert(index_of_edges, edges_line)
+
