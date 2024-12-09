@@ -281,6 +281,9 @@ class PyVisWrapper:
         index_of_function = -1
         index_of_nodes = -1
         index_of_edges = -1
+        index_of_screen_height = -1
+        index_of_border = -1
+        index_of_card_class = -1
         for index, line in enumerate(file_data):
             if index_of_function == -1 and ('// This method is responsible for drawing the graph, '
                                             'returns the drawn network') in line:
@@ -289,6 +292,12 @@ class PyVisWrapper:
                 index_of_nodes = index
             elif index_of_edges == -1 and 'edges = new vis.DataSet' in line:
                 index_of_edges = index
+            elif index_of_screen_height == -1 and 'height: 600px;' in line:
+                index_of_screen_height = index
+            elif index_of_border == -1 and 'border: 1px solid lightgray;' in line:
+                index_of_border = index
+            elif index_of_card_class == -1 and 'class="card"' in line:
+                index_of_card_class = index
 
         nodes_line = file_data.pop(index_of_nodes)
         nodes_line = nodes_line.replace('"\\u003chtmlTitle\\u003e(\\\"', 'htmlTitle("'). \
@@ -303,6 +312,21 @@ class PyVisWrapper:
         file_data.insert(index_of_function + 1, '                container.innerHTML = html;' + '\n')
         file_data.insert(index_of_function + 2, '                return container;' + '\n')
         file_data.insert(index_of_function + 3, '              }' + '\n')
+
+        if index_of_screen_height != -1:
+            screen_height_line = file_data.pop(index_of_screen_height)
+            screen_height_line = screen_height_line.replace('height: 600px;', 'height: auto;')
+            file_data.insert(index_of_screen_height, screen_height_line)
+
+        if index_of_border != -1:
+            border_line = file_data.pop(index_of_border)
+            border_line = border_line.replace('border: 1px solid lightgray;', 'border: 0px solid lightgray;')
+            file_data.insert(index_of_border, border_line)
+
+        if index_of_card_class != -1:
+            card_class_line = file_data.pop(index_of_card_class)
+            card_class_line = card_class_line.replace('class="card"', ' ')
+            file_data.insert(index_of_card_class, card_class_line)
 
         with open(file_path, 'w') as file:
             for line in file_data:
