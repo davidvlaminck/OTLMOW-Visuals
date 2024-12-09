@@ -1,4 +1,5 @@
 import json
+import warnings
 import webbrowser
 from pathlib import Path
 from random import choice
@@ -20,6 +21,8 @@ def remove_duplicates_in_iterable_based_on_asset_id(list_of_objects: [OTLObject]
 
 class PyVisWrapper:
     def __init__(self, notebook_mode: bool = False):
+        if notebook_mode:
+            warnings.warn("set the nodebook mode using the show method")
         self.notebook_mode = notebook_mode
         self.relatie_color_dict = {
             'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene': 'f59900',
@@ -177,8 +180,8 @@ class PyVisWrapper:
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
         g.set_options(options)
 
-        g.write_html(str(html_path), notebook=self.notebook_mode)
-        self.modify_html(Path(html_path))
+        g.write_html(str(html_path), notebook=notebook_mode)
+        self.modify_html(Path(html_path), notebook=notebook_mode)
         if not self.notebook_mode and launch_html:
             webbrowser.open(str(html_path))
 
@@ -274,7 +277,7 @@ class PyVisWrapper:
         return f'<htmlTitle>("<div style="font-family: monospace;">{html}</div>")<htmlTitleEnd>'
 
     @classmethod
-    def modify_html(cls, file_path: Path) -> None:
+    def modify_html(cls, file_path: Path, notebook: bool = False) -> None:
         with open(file_path) as file:
             file_data = file.readlines()
 
@@ -301,7 +304,7 @@ class PyVisWrapper:
 
         nodes_line = file_data.pop(index_of_nodes)
         nodes_line = nodes_line.replace('"\\u003chtmlTitle\\u003e(\\\"', 'htmlTitle("'). \
-            replace('\\\")\\u003chtmlTitleEnd\\u003e"', '")').replace('\\u003c', '<').replace('\\u003e', '>')
+                replace('\\\")\\u003chtmlTitleEnd\\u003e"', '")').replace('\\u003c', '<').replace('\\u003e', '>')
         file_data.insert(index_of_nodes, nodes_line)
 
         cls.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
@@ -315,7 +318,10 @@ class PyVisWrapper:
 
         if index_of_screen_height != -1:
             screen_height_line = file_data.pop(index_of_screen_height)
-            screen_height_line = screen_height_line.replace('height: 600px;', 'height: auto;')
+            if notebook:
+                screen_height_line = screen_height_line.replace('height: 600px;', 'height: 800px;')
+            else:        
+                screen_height_line = screen_height_line.replace('height: 600px;', 'height: auto;')
             file_data.insert(index_of_screen_height, screen_height_line)
 
         if index_of_border != -1:
@@ -323,7 +329,7 @@ class PyVisWrapper:
             border_line = border_line.replace('border: 1px solid lightgray;', 'border: 0px solid lightgray;')
             file_data.insert(index_of_border, border_line)
 
-        if index_of_card_class != -1:
+        if index_of_card_class != -1 and not notebook:
             card_class_line = file_data.pop(index_of_card_class)
             card_class_line = card_class_line.replace('class="card"', ' ')
             file_data.insert(index_of_card_class, card_class_line)
@@ -331,7 +337,6 @@ class PyVisWrapper:
         with open(file_path, 'w') as file:
             for line in file_data:
                 file.write(line)
-
     @classmethod
     def modify_edges_in_html(cls, file_data, index_of_edges):
         if index_of_edges == -1:
