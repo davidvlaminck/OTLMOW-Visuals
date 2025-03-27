@@ -174,9 +174,7 @@ class PyVisWrapper:
 
         nodes_created = self.create_nodes(g, assets)
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
-        options = ('options = {"nodes": {"font":{"bold":{"size": 18}}}, "interaction": {"dragView": true}, "physics": '
-                   '{"solver": "barnesHut", "stabilization": true, "barnesHut" : {"centralGravity" : 0, '
-                   '"springLength" : 100, "avoidOverlap" : 0.05,"gravitationalConstant" : -2500}}}')
+        options = ('options = {  "nodes": {    "borderWidth": null,    "borderWidthSelected": null,      "physics": false,    "scaling": {      "label": {        "enabled": true,        "min": null,        "max": null,        "maxVisible": null,        "drawThreshold": null      }    },    "size": null  },  "edges": {    "selfReferenceSize": null,    "selfReference": {      "angle": 0.7853981633974483    },    "smooth": false  },  "layout": {    "hierarchical": {      "enabled": true,      "direction": "LR"    }  },  "physics": {    "enabled": false,    "hierarchicalRepulsion": {      "centralGravity": 0,      "avoidOverlap": null    },    "minVelocity": 0.75,    "solver": "hierarchicalRepulsion"  }}')
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
         g.set_options(options)
 
