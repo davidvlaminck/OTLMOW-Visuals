@@ -1,25 +1,26 @@
+import base64
 import json
+import re
 import warnings
 import webbrowser
 from pathlib import Path
 from random import choice
+from re import Match
+from typing import Optional
 
-from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject
+from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject, \
+    dynamic_create_instance_from_ns_and_name
+from otlmow_model.OtlmowModel.Helpers import OTLObjectHelper
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
 from pyvis import network as networkx
 
 
-def remove_duplicates_in_iterable_based_on_asset_id(list_of_objects: [OTLObject]) -> [OTLObject]:
-    unique = {}
-    for elem in list_of_objects:
-        if elem.typeURI == 'http://purl.org/dc/terms/Agent':
-            unique.setdefault(elem.agentId.identificator, elem)
-        else:
-            unique.setdefault(elem.assetId.identificator, elem)
-    return list(unique.values())
 
 
 class PyVisWrapper:
+
+
+
     def __init__(self, notebook_mode: bool = False):
         if notebook_mode:
             warnings.warn("set the nodebook mode using the show method")
@@ -160,7 +161,19 @@ class PyVisWrapper:
             "#521433", "#570F33", "#5C0A33", "#610533", "#660033")
 
 
+
         self.color_dict = {}
+
+    @classmethod
+    def remove_duplicates_in_iterable_based_on_asset_id(self, list_of_objects: [OTLObject]) -> [
+        OTLObject]:
+        unique = {}
+        for elem in list_of_objects:
+            if elem.typeURI == 'http://purl.org/dc/terms/Agent':
+                unique.setdefault(elem.agentId.identificator, elem)
+            else:
+                unique.setdefault(elem.assetId.identificator, elem)
+        return list(unique.values())
 
     def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), launch_html: bool = True,
              notebook_mode: bool = False, **kwargs) -> None:
@@ -225,10 +238,11 @@ class PyVisWrapper:
                          '           "strokeColor":"#111111",'
                          '           "strokeWidth": 2'
                          '       },'
-                         '       "margin": 20,'
+                         '       "margin": 10,'
+                         # '       "margin": 20,'
                          '       "widthConstraint":'
                          '       {   '
-                         '           "minimum": 150,'
+                         # '           "minimum": 150,'
                          '           "maximum": 150'
                          '       }   '     
                          '}, '
@@ -251,7 +265,7 @@ class PyVisWrapper:
                      ' },'
                    '"configure":{'
                    '    "enabled": true,'
-                   '    "filter": "nodes",'
+                   '    "filter": "physics",'
                    '    "showButton":true}'
                      '}')
 
@@ -281,11 +295,69 @@ class PyVisWrapper:
                     '    "showButton":true}'
                     '}')
 
+        options4 = ('options = {'
+                    '"nodes": '
+                    '{'
+                    '      "font":'
+                    '      {'
+                    '          "bold": true,'
+                    # '          {'
+                    # '              "size": 18'
+                    # '           },'
+                    '           "color":"#FFFFFF", '
+                    '           "strokeColor":"#111111",'
+                    '           "strokeWidth": 2'
+                    '       },'
+                    '       "margin": 10,'
+                  
+                    '       "widthConstraint":'
+                    '       {   '
+                    '           "maximum": 150'
+                    '       }   '
+                    '}, '
+                    '"interaction": {"dragView": true}, '
+                    '"physics":'
+                    ' {'
+                    '"repulsion": '
+                    '{'
+                    '       "centralGravity": 0.1,'
+                    '       "springLength": 120,'
+                    '       "springConstant": 0.5,'
+                    '       "nodeDistance": 100,'
+                    '       "damping": 0.2'
+                    '},'
+                    '"minVelocity": 0.75,'
+                    '"maxVelocity": 50,'
+                    '"solver": "repulsion"'
+                    '},'
+                    '"layout" : {'
+                    '"clusterThreshold": 150'
+                    ' },'
+                    '"configure":{'
+                    '    "enabled": true,'
+                    '    "filter": "physics",'
+                    '    "showButton":true}'
+                    '}')
+
+        options5 = ('const options = '
+                    '{'
+                    '   "physics": '
+                    '   {'
+                    '    "enabled": false,'
+                    '    "repulsion": '
+                    '    {'
+                    '        "springLength": 120,'
+                    '        "damping": 0.2'
+                    '    },'
+                    '    "minVelocity": 0.75,'
+                    '    "solver": "repulsion"'
+                    '    }'
+                    '}')
 
 
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
-        print(options2)
-        g.set_options(options2)
+        print(options4)
+        g.set_options(options4)
 
         g.write_html(str(html_path), notebook=notebook_mode)
         self.modify_html(Path(html_path), notebook=notebook_mode)
@@ -293,14 +365,14 @@ class PyVisWrapper:
             webbrowser.open(str(html_path))
 
     def create_nodes(self, g, list_of_objects: [OTLObject]) -> [OTLObject]:
-        list_of_objects = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
+        list_of_objects = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         nodes = []
         for index, otl_object in enumerate(list_of_objects):
             if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
-                naam = f'{otl_object.agentId.identificator[:36]}\n{otl_object.__class__.__name__}'
+                naam = f'{self.abbreviate_if_AIM_id(otl_object.agentId.identificator)[:36]}\n{otl_object.__class__.__name__}'
             else:
-                naam = f'{otl_object.assetId.identificator[:36]}\n{otl_object.__class__.__name__}'
+                naam = f'{self.abbreviate_if_AIM_id(otl_object.assetId.identificator)[:36]}\n{otl_object.__class__.__name__}'
             if hasattr(otl_object, 'naam'):
                 naam = f'{otl_object.naam}\n{otl_object.__class__.__name__}'
 
@@ -340,7 +412,7 @@ class PyVisWrapper:
 
     def create_edges(self, g, list_of_objects: [OTLObject], nodes) -> None:
         asset_ids = list(self.get_all_ids_from_objects(nodes))
-        relaties = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
+        relaties = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         for relatie in relaties:
             if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
@@ -462,3 +534,6 @@ class PyVisWrapper:
         edges_line = f'edges = new vis.DataSet({json.dumps(edge_dict_list)});'
         file_data.insert(index_of_edges, edges_line)
 
+    @classmethod
+    def abbreviate_if_AIM_id(cls,id):
+        return id.split("-")[0] if OTLObjectHelper.is_aim_id(id) else id
