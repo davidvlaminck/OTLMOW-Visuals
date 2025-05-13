@@ -14,3 +14,5 @@ if __name__ == '__main__':
     assets = (vr, kast, bevestiging)
 
     PyVisWrapper().show(assets, launch_html=False)
+
+

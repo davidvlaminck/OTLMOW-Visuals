@@ -47,6 +47,8 @@ class PyVisWrapper:
             'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftToegangsprocedure': 'a52a2a',
             'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBijlage': '0000ff',
         }
+        self.awv_color_list = ("#7F4C32","#6A3D9A","#FF7F00","#33A02C","#1F78B4","#E31A1C",
+                               "#B8B327","#CAB2D6","#FDBF6F","#B2DF8A","#A6CEE3","#FB9A99")
         self.list_of_colors = (
             "#E5E5E5", "#CCCCCC", "#B2B2B2", "#999999", "#808080", "#666666", "#4D4D4D", "#333333", "#E8E3E3",
             "#EBE0E0", "#EDDEDE", "#F0DBDB", "#F2D9D9", "#F5D6D6", "#F7D4D4", "#FAD1D1", "#FCCFCF", "#FFCCCC",
@@ -156,6 +158,8 @@ class PyVisWrapper:
             "#B81466", "#C20A66", "#CC0066", "#54454C", "#5C3D4C", "#63364D", "#6B2E4D", "#73264D", "#7A1F4D",
             "#82174D", "#8A0F4D", "#91084D", "#99004D", "#382E33", "#3D2933", "#422433", "#471F33", "#4D1933",
             "#521433", "#570F33", "#5C0A33", "#610533", "#660033")
+
+
         self.color_dict = {}
 
     def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), launch_html: bool = True,
@@ -174,11 +178,114 @@ class PyVisWrapper:
 
         nodes_created = self.create_nodes(g, assets)
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
-        options = ('options = {"nodes": {"font":{"bold":{"size": 18}}}, "interaction": {"dragView": true}, "physics": '
-                   '{"solver": "barnesHut", "stabilization": true, "barnesHut" : {"centralGravity" : 0, '
-                   '"springLength" : 100, "avoidOverlap" : 0.05,"gravitationalConstant" : -2500}}}')
+        options = ('options = {'
+                   '"nodes": {"font":{"bold":{"size": 18}}}, '
+                   '"interaction": {"dragView": true}, '
+                   '"physics":  {"solver": "barnesHut", '
+                   '            "stabilization": true, '
+                   '            "barnesHut" : {"centralGravity" : 0, '
+                   '                            "springLength" : 100, '
+                   '                            "avoidOverlap" : 0.05,'
+                   '                            "gravitationalConstant" : -2500'
+                   '                            }'
+                   '            },'
+                   '"layout" : {'
+                   ' "randomSeed": "undefined",'
+                        '"improvedLayout":true,'
+                        '"clusterThreshold": 150,'
+                       ' "hierarchical": {'
+                          '"enabled": false,'
+                          '"levelSeparation": 150,'
+                          '"nodeSpacing": 100,'
+                          '"treeSpacing": 200,'
+                          '"blockShifting": true,'
+                          '"edgeMinimization": true,'
+                          '"parentCentralization": true,'
+                          '"direction": "UD",'
+                          '"sortMethod": "hubsize",'
+                          '"shakeTowards": "leaves"'
+                       ' }'
+                     ' },'
+                   '"configure":{'
+                   '    "enabled": true,'
+                   '    "filter": "physics",'
+                   '    "showButton":true}'
+                   '}')
+
+        options2 =(  'options = {'
+                         '"nodes": '
+                         '{'
+                         '      "font":'
+                         '      {'
+                         '          "bold":'
+                         '          {'
+                         '              "size": 18'
+                         '           },'
+                         '           "color":"#FFFFFF", '
+                         '           "strokeColor":"#111111",'
+                         '           "strokeWidth": 2'
+                         '       },'
+                         '       "margin": 20,'
+                         '       "widthConstraint":'
+                         '       {   '
+                         '           "minimum": 150,'
+                         '           "maximum": 150'
+                         '       }   '     
+                         '}, '
+                         '"interaction": {"dragView": true}, '
+                         '"physics":'
+                         ' {'
+                            '"hierarchicalRepulsion": '
+                            '{'
+                            '       "centralGravity": 1.05,'
+                            '       "springLength": 200,'
+                            '       "springConstant": 0.4,'
+                            '       "nodeDistance": 240,'
+                            '       "avoidOverlap": null'
+                            '},'
+                            '"minVelocity": 0.75,'
+                            '"solver": "hierarchicalRepulsion"'
+                        '},'
+                     '"layout" : {'
+                        '"clusterThreshold": 150'
+                     ' },'
+                   '"configure":{'
+                   '    "enabled": true,'
+                   '    "filter": "nodes",'
+                   '    "showButton":true}'
+                     '}')
+
+        options3 = ('options = {'
+                    '"nodes": {"font":{"bold":{"size": 18}}}, '
+                    '"interaction": {"dragView": true}, '
+                    '"physics":'
+                    ' {'
+                    '"hierarchicalRepulsion": '
+                    '{'
+                    '       "centralGravity": 1.05,'
+                    '       "springLength": 200,'
+                    '       "springConstant": 0.4,'
+                    '       "springConstant": 0.4,'
+                    '       "nodeDistance": 50,'
+                    '       "avoidOverlap": 0.5'
+                    '},'
+                    '"minVelocity": 0.75,'
+                    '"solver": "hierarchicalRepulsion"'
+                    '},'
+                    '"layout" : {'
+                    '"clusterThreshold": 150,'
+                    ' },'
+                    '"configure":{'
+                    '    "enabled": true,'
+                    '    "filter": "physics",'
+                    '    "showButton":true}'
+                    '}')
+
+
+
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
-        g.set_options(options)
+        print(options2)
+        g.set_options(options2)
 
         g.write_html(str(html_path), notebook=notebook_mode)
         self.modify_html(Path(html_path), notebook=notebook_mode)
@@ -191,21 +298,21 @@ class PyVisWrapper:
         nodes = []
         for index, otl_object in enumerate(list_of_objects):
             if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
-                naam = f'{otl_object.__class__.__name__}_{otl_object.agentId.identificator[:36]}'
+                naam = f'{otl_object.agentId.identificator[:36]}\n{otl_object.__class__.__name__}'
             else:
-                naam = f'{otl_object.__class__.__name__}_{otl_object.assetId.identificator[:36]}'
+                naam = f'{otl_object.assetId.identificator[:36]}\n{otl_object.__class__.__name__}'
             if hasattr(otl_object, 'naam'):
-                naam = otl_object.naam
+                naam = f'{otl_object.naam}\n{otl_object.__class__.__name__}'
 
             selected_color = self.random_color_if_not_in_dict(otl_object.typeURI)
 
             tooltip = self.get_tooltip(otl_object)
             size = 20
-            shape = 'square'
+            shape = 'box'#'square'
             if otl_object.typeURI.startswith('https://lgc.'):
-                shape = 'diamond'
+                shape = 'ellipse'#'diamond'
             elif otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
-                shape = 'dot'
+                shape = 'circle'
                 size = 20
 
             if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
@@ -244,17 +351,17 @@ class PyVisWrapper:
                         g.add_edge(source=relatie.bronAssetId.identificator,
                                    to=relatie.doelAssetId.identificator,
                                    color=self.map_relation_to_color(relatie),
-                                   width=2, arrowStrikethrough=False, label=relatie.rol)
+                                   width=2, arrowStrikethrough=False, label=relatie.rol,smooth={"enabled":False})
                     else:
                         g.add_edge(source=relatie.bronAssetId.identificator,
                                    to=relatie.doelAssetId.identificator,
                                    color=self.map_relation_to_color(relatie),
-                                   width=2, arrowStrikethrough=False)
+                                   width=2, arrowStrikethrough=False,smooth={"enabled":False})
                 else:
                     g.add_edge(to=relatie.bronAssetId.identificator,
                                source=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
-                               width=2, arrowStrikethrough=False, label='remove_arrow')
+                               width=2, arrowStrikethrough=False, label='remove_arrow',smooth={"enabled":False})
 
     def map_relation_to_color(self, relatie: OTLObject) -> str:
         return self.relatie_color_dict.get(relatie.typeURI, 'brown')
@@ -263,11 +370,15 @@ class PyVisWrapper:
         if type_uri not in self.color_dict.keys():
             if type_uri == 'http://purl.org/dc/terms/Agent':
                 random_color = '#FFA500'
+            if len(self.color_dict) < len(self.awv_color_list):
+                random_color = self.awv_color_list[len(self.color_dict)]
+                self.color_dict[type_uri] = random_color
             else:
+
                 random_color = choice(self.list_of_colors)
-            while random_color in self.color_dict.values():
-                random_color = choice(self.list_of_colors)
-            self.color_dict[type_uri] = random_color
+                while random_color in self.color_dict.values():
+                    random_color = choice(self.list_of_colors)
+                self.color_dict[type_uri] = random_color
         return self.color_dict[type_uri]
 
     @classmethod
