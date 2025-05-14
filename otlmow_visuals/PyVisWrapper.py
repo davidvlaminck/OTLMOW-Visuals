@@ -274,36 +274,43 @@ class PyVisWrapper:
                     '      "font":'
                     '      {'
                     '           "bold": true,'
-                    '           "size": 21,'
+                    '           "size": 25,'
                     '           "color":"#000000" '
                     '       },'
-                    '       "margin": 20'
-                    # '       "widthConstraint":'
-                    # '       {   '
-                    # '           "minimum": 175,'
-                    # '           "maximum": 175'
-                    # '       }   '
+                    '       "margin": 10,'
+                    '       "widthConstraint":'
+                    '       {   '
+                    '           "minimum": 150,'
+                    '           "maximum": 250'
+                    '       }   '
                     '}, '
                     '"interaction": {"dragView": true}, '
-                    '"physics":'
-                    ' {'
-                    '"hierarchicalRepulsion": '
-                    '{'
-                    '       "centralGravity": 1.05,'
-                    '       "springLength": 240,'
-                    '       "springConstant": 5,'
-                    '        "nodeDistance": 125,'
-                    '        "avoidOverlap": 1'
+                    ' "layout": {'
+                        '"hierarchical": {'
+                          '"enabled": true,'
+                          '"levelSeparation": 290,'
+                          '"nodeSpacing": 467,'
+                          '"treeSpacing": 492,'
+                          '"edgeMinimization": false,'
+                          '"parentCentralization": false,'
+                          '"direction": "LR"'
+                        '}'
+                      '},'
+                      '"physics": {'
+                        '"hierarchicalRepulsion": {'
+                          '"centralGravity": 1.05,'
+                          '"springLength": 170,'
+                          '"springConstant": 1,'
+                          '"nodeDistance": 90,'
+                          '"avoidOverlap": 1'
+                        '},'
+                        '"minVelocity": 0.75,'
+                        '"solver": "hierarchicalRepulsion"'
                     '},'
-                    '"minVelocity": 0.75,'
-                    '"solver": "hierarchicalRepulsion"'
-                    '},'
-                    '"layout" : {'
-                    '"clusterThreshold": 150'
-                    ' },'
+              
                     '"configure":{'
                     '    "enabled": true,'
-                    '    "filter": "physics",'
+                    '    "filter": "physics,layout",'
                     '    "showButton":true}'
                     '}')
         # special barneshut setting
@@ -415,10 +422,22 @@ class PyVisWrapper:
                     '},'
                     '"layout" : {'
                     '"clusterThreshold": 150'
+                    'hierarchical: {'
+      'enabled:true,'
+      'levelSeparation: 100,'
+      'nodeSpacing: 100,'
+      'treeSpacing: 100,'
+      'blockShifting: true,'
+      'edgeMinimization: true,'
+      'parentCentralization: true,'
+     ' direction: "RL",'        
+     ' sortMethod:"hubsize",'  
+      'shakeTowards: "leaves"'  
+   ' }'
                     ' },'
                     '"configure":{'
                     '    "enabled": true,'
-                    '    "filter": "physics",'
+                    '    "filter": "physics,layout",'
                     '    "showButton":true}'
                     '}')
 
@@ -575,12 +594,12 @@ class PyVisWrapper:
 
         cls.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
         #insert handler that activates when DOMcontent is loaded
-        # file_data.insert(index_of_function - 5,
-        #                  'document.addEventListener("DOMContentLoaded", (event) => {\n')
-        # file_data.insert(index_of_function - 4,
-        #                  'document.getElementById("mynetwork").style.display="flex";\n')
-        # file_data.insert(index_of_function - 3,
-        #                 '});\n')
+        file_data.insert(index_of_function - 5,
+                         'document.addEventListener("DOMContentLoaded", (event) => {\n')
+        file_data.insert(index_of_function - 4,
+                         'document.getElementById("mynetwork").style.display="flex";\n')
+        file_data.insert(index_of_function - 3,
+                        '});\n')
         #add html title?
         file_data.insert(index_of_function - 2, '              // text to html element\n')
         file_data.insert(index_of_function - 1, '              function htmlTitle(html) {' + '\n')
