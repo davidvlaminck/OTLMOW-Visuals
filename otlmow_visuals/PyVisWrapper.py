@@ -264,10 +264,98 @@ class PyVisWrapper:
                     ' },'
                     '"configure":{'
                     '    "enabled": true,'
-                    '    "filter": "nodes",'
+                    '    "filter": "physics",'
                     '    "showButton":true}'
                     '}')
-
+        #no overlap smaller nodedistance /better springconstant
+        options2_1 = ('options = {'
+                    '"nodes": '
+                    '{'
+                    '      "font":'
+                    '      {'
+                    '          "bold":'
+                    '          {'
+                    '              "size": 18'
+                    '           },'
+                    '           "color":"#FFFFFF", '
+                    '           "strokeColor":"#111111",'
+                    '           "strokeWidth": 2'
+                    '       },'
+                    '       "margin": 20,'
+                    '       "widthConstraint":'
+                    '       {   '
+                    '           "minimum": 150,'
+                    '           "maximum": 150'
+                    '       }   '
+                    '}, '
+                    '"interaction": {"dragView": true}, '
+                    '"physics":'
+                    ' {'
+                    '"hierarchicalRepulsion": '
+                    '{'
+                    '       "centralGravity": 1.05,'
+                    '       "springLength": 240,'
+                    '       "springConstant": 5,'
+                    '        "nodeDistance": 125,'
+                    '        "avoidOverlap": 1'
+                    '},'
+                    '"minVelocity": 0.75,'
+                    '"solver": "hierarchicalRepulsion"'
+                    '},'
+                    '"layout" : {'
+                    '"clusterThreshold": 150'
+                    ' },'
+                    '"configure":{'
+                    '    "enabled": true,'
+                    '    "filter": "physics",'
+                    '    "showButton":true}'
+                    '}')
+        # special barneshut setting
+        options2_2 = ('options = {'
+                      '"nodes": '
+                      '{'
+                      '      "font":'
+                      '      {'
+                      '          "bold":'
+                      '          {'
+                      '              "size": 18'
+                      '           },'
+                      '           "color":"#FFFFFF", '
+                      '           "strokeColor":"#111111",'
+                      '           "strokeWidth": 2'
+                      '       },'
+                      '       "margin": 20,'
+                      '       "widthConstraint":'
+                      '       {   '
+                      '           "minimum": 150,'
+                      '           "maximum": 150'
+                      '       }   '
+                      '}, '
+                      '"interaction": {"dragView": true}, '
+                      '"physics":'
+                      ' {'
+                      '"barnesHut": '
+                      '{'
+                      '       "theta": 0.1, '
+                      '       "gravitationalConstant": -475455,   '   
+                      '       "centralGravity": 0.1,'
+                      '       "springLength": 150,'
+                      '       "springConstant": 22,'
+                      '       "nodeDistance": 125,'
+                      '       "damping": 0.73, '    
+                      '       "avoidOverlap": 1'
+                      '},'
+                      '"minVelocity": 0.75,'
+                      '"solver": "barnesHut"'
+                      '},'
+                      '"layout" : {'
+                      '"clusterThreshold": 150'
+                      ' },'
+                      '"configure":{'
+                      '    "enabled": true,'
+                      '    "filter": "physics",'
+                      '    "showButton":true}'
+                      '}')
         options3 = ('options = {'
                     '"nodes": {"font":{"bold":{"size": 18}}}, '
                     '"interaction": {"dragView": true}, '
@@ -355,8 +443,8 @@ class PyVisWrapper:
 
 
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
-        print(options4)
-        g.set_options(options4)
+        print(options2_1)
+        g.set_options(options2_1)
 
         g.write_html(str(html_path), notebook=notebook_mode)
         self.modify_html(Path(html_path), notebook=notebook_mode)
@@ -490,7 +578,14 @@ class PyVisWrapper:
         file_data.insert(index_of_nodes, nodes_line)
 
         cls.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
-
+        #insert handler that activates when DOMcontent is loaded
+        # file_data.insert(index_of_function - 5,
+        #                  'document.addEventListener("DOMContentLoaded", (event) => {\n')
+        # file_data.insert(index_of_function - 4,
+        #                  'document.getElementById("mynetwork").style.display="flex";\n')
+        # file_data.insert(index_of_function - 3,
+        #                 '});\n')
+        #add html title?
         file_data.insert(index_of_function - 2, '              // text to html element\n')
         file_data.insert(index_of_function - 1, '              function htmlTitle(html) {' + '\n')
         file_data.insert(index_of_function, '                const container = document.createElement("div");' + '\n')
