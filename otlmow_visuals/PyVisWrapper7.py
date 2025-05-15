@@ -19,7 +19,7 @@ from pyvis import network as networkx
 
 
 
-class PyVisWrapper:
+class PyVisWrapper7:
 
 
 
@@ -536,7 +536,8 @@ class PyVisWrapper:
                 list)
         relations_per_asset_doel[typeURI][rol][asset_id].append(o)
 
-    def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset,use_bron = True):
+    def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset,
+                                           use_bron=True):
         assets_with_to_many = []
         assets_count = len(assets)
 
@@ -549,8 +550,6 @@ class PyVisWrapper:
             else:
                 asset_id = asset.assetId.identificator
 
-
-
             if asset_id in single_level_dict.keys():
                 # for relations_per_asset in single_level_dict[asset_id]:
                 relations_per_asset = single_level_dict[asset_id]
@@ -561,16 +560,18 @@ class PyVisWrapper:
                         relations.remove(relation)
 
                     relatie = relations_per_asset[0]
-                    new_node_id= relatie.assetId.identificator
+                    new_node_id = relatie.assetId.identificator
                     relatie.assetId.identificator = "1"
                     if use_bron:
-                        self.create_special_node(g,new_node_id=new_node_id,
-                                                 list_of_ids= [rel.bronAssetId.identificator for rel in relations])
+                        self.create_special_node(g, new_node_id=new_node_id,
+                                                 list_of_ids=[rel.bronAssetId.identificator for rel
+                                                              in relations_per_asset])
                         relatie.bronAssetId.identificator = new_node_id
                     else:
-                        self.create_special_node(g,new_node_id=new_node_id,
-                                                 list_of_ids= [rel.doelAssetId.identificator for rel in
-                                                  relations])
+                        self.create_special_node(g, new_node_id=new_node_id,
+                                                 list_of_ids=[rel.doelAssetId.identificator for rel
+                                                              in
+                                                              relations_per_asset])
                         relatie.doelAssetId.identificator = new_node_id
 
                     asset_ids = (asset_id, new_node_id)
@@ -596,7 +597,7 @@ class PyVisWrapper:
                 naam = f'{self.abbreviate_if_AIM_id(otl_object.agentId.identificator)[:36]}\n{otl_object.__class__.__name__}'
             else:
                 naam = f'{self.abbreviate_if_AIM_id(otl_object.assetId.identificator)[:36]}\n{otl_object.__class__.__name__}'
-            if hasattr(otl_object, 'naam'):
+            if hasattr(otl_object, 'naam') and otl_object.naam:
                 naam = f'{otl_object.naam}\n{otl_object.__class__.__name__}'
 
             selected_color = self.random_color_if_not_in_dict(otl_object.typeURI)
