@@ -3,6 +3,7 @@ import json
 import re
 import warnings
 import webbrowser
+from collections import defaultdict
 from pathlib import Path
 from random import choice
 from re import Match
@@ -183,13 +184,20 @@ class PyVisWrapper:
 
         assets = []
         relations = []
+        relations_per_asset = defaultdict(list)
         for o in list_of_objects:
             if is_relation(o):
                 relations.append(o)
+                # relations_per_asset[o.bronAssetId.identificator].append(o)
+                relations_per_asset[o.doelAssetId.identificator].append(o)
             else:
                 assets.append(o)
 
         nodes_created = self.create_nodes(g, assets)
+
+        # remove relations to asset that have to many relation create a new node with one relation
+        self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset)
+
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
         options = ('options = {'
                    '"nodes": {"font":{"bold":{"size": 18}}}, '
@@ -455,16 +463,84 @@ class PyVisWrapper:
                     '    "solver": "repulsion"'
                     '    }'
                     '}')
+        options_hier = ('options = {'
+                      '"nodes": '
+                      '{'
+                      '      "font":'
+                      '      {'
+                      '           "bold": true,'
+                      '           "size": 25,'
+                      '           "color":"#000000" '
+                      '       },'
+                      '       "margin": 10,'
+                      '       "widthConstraint":'
+                      '       {   '
+                      '           "minimum": 150,'
+                      '           "maximum": 250'
+                      '       }   '
+                      '}, '
+                      '"interaction": {"dragView": true}, '
+                      ' "layout": {'
+                      '"hierarchical": {'
+                      '"enabled": true,'
+                      '"levelSeparation": 290,'
+                      '"nodeSpacing": 467,'
+                      '"treeSpacing": 492,'
+                      '"edgeMinimization": false,'
+                      '"parentCentralization": false,'
+                      '"direction": "LR"'
+                      '}'
+                      '},'
+                      '"physics": {'
+                      '"hierarchicalRepulsion": {'
+                      '"centralGravity": 1.05,'
+                      '"springLength": 170,'
+                      '"springConstant": 1,'
+                      '"nodeDistance": 90,'
+                      '"avoidOverlap": 1'
+                      '},'
+                      '"minVelocity": 0.75,'
+                      '"solver": "hierarchicalRepulsion"'
+                      '}'
 
+                      # '"configure":{'
+                      # '    "enabled": true,'
+                      # '    "filter": "physics,layout",'
+                      # '    "showButton":true}'
+                      '}')
 
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
-        print(options2_1)
-        g.set_options(options2_1)
+        print(options_hier)
+        g.set_options(options_hier)
 
         g.write_html(str(html_path), notebook=notebook_mode)
         self.modify_html(Path(html_path), notebook=notebook_mode)
         if not self.notebook_mode and launch_html:
             webbrowser.open(str(html_path))
+
+    def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset):
+        assets_with_to_many = []
+        assets_count = len(assets)
+        for asset in assets:
+            if asset.typeURI == 'http://purl.org/dc/terms/Agent':
+                asset_id = asset.agentId.identificator
+            else:
+                asset_id = asset.assetId.identificator
+            if asset_id in relations_per_asset.keys():
+                if len(relations_per_asset[asset_id]) > assets_count * 0.7:
+                    assets_with_to_many.append(asset)
+                    # remove the relations from the original list
+                    for relation in relations_per_asset[asset_id]:
+                        relations.remove(relation)
+                    self.create_special_node(g,
+                                             [rel.bronAssetId.identificator for rel in relations])
+
+                    relatie = relations_per_asset[asset_id][0]
+                    relatie.bronAssetId.identificator = "1"
+
+                    asset_ids = (asset_id, "1")
+
+                    self.create_relation_edge(asset_ids, g, relatie)
 
     def create_nodes(self, g, list_of_objects: [OTLObject]) -> [OTLObject]:
         list_of_objects = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
@@ -517,25 +593,31 @@ class PyVisWrapper:
         relaties = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         for relatie in relaties:
-            if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
-                # only display relations between assets that are displayed
-                if is_directional_relation(relatie):
-                    if (relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
-                            and relatie.rol is not None):
-                        g.add_edge(source=relatie.bronAssetId.identificator,
-                                   to=relatie.doelAssetId.identificator,
-                                   color=self.map_relation_to_color(relatie),
-                                   width=2, arrowStrikethrough=False, label=relatie.rol,smooth={"enabled":False})
-                    else:
-                        g.add_edge(source=relatie.bronAssetId.identificator,
-                                   to=relatie.doelAssetId.identificator,
-                                   color=self.map_relation_to_color(relatie),
-                                   width=2, arrowStrikethrough=False,smooth={"enabled":False})
-                else:
-                    g.add_edge(to=relatie.bronAssetId.identificator,
-                               source=relatie.doelAssetId.identificator,
+            self.create_relation_edge(asset_ids, g, relatie)
+
+    def create_relation_edge(self, asset_ids, g, relatie):
+        if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
+            # only display relations between assets that are displayed
+            if is_directional_relation(relatie):
+                if (
+                        relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
+                        and relatie.rol is not None):
+                    g.add_edge(source=relatie.bronAssetId.identificator,
+                               to=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
-                               width=2, arrowStrikethrough=False, label='remove_arrow',smooth={"enabled":False})
+                               width=2, arrowStrikethrough=False, label=relatie.rol,
+                               smooth={"enabled": False})
+                else:
+                    g.add_edge(source=relatie.bronAssetId.identificator,
+                               to=relatie.doelAssetId.identificator,
+                               color=self.map_relation_to_color(relatie),
+                               width=2, arrowStrikethrough=False, smooth={"enabled": False})
+            else:
+                g.add_edge(to=relatie.bronAssetId.identificator,
+                           source=relatie.doelAssetId.identificator,
+                           color=self.map_relation_to_color(relatie),
+                           width=2, arrowStrikethrough=False, label='remove_arrow',
+                           smooth={"enabled": False})
 
     def map_relation_to_color(self, relatie: OTLObject) -> str:
         return self.relatie_color_dict.get(relatie.typeURI, 'brown')
@@ -646,3 +728,25 @@ class PyVisWrapper:
     @classmethod
     def abbreviate_if_AIM_id(cls,id):
         return id.split("-")[0] if OTLObjectHelper.is_aim_id(id) else id
+
+    @classmethod
+    def create_special_node(cls,g, list_of_ids:list):
+        naam ="Collectie:\n"
+        for identificator in list_of_ids:
+            naam += f'{cls.abbreviate_if_AIM_id(identificator)[:36]}\n'
+
+
+        selected_color = "#CCCCCC"
+
+
+        size = 20
+        shape = 'box'  # 'diamond'
+
+        node_id = "1"
+        g.add_node(node_id,
+                   label=naam,
+                   shape=shape,
+                   size=size,
+                   color=selected_color)
+
+

@@ -26,10 +26,14 @@ def modify_html(file_path: Path) -> None:
         file_data.insert(replace_index + 2,
                          "function disablePhysics(){\n")
         file_data.insert(replace_index + 3, "if(isPhysicsOn){")
-        file_data.insert(replace_index + 4, 'newOptions={"physics":{"enabled":false}};\n')
-        file_data.insert(replace_index + 5, "network.setOptions(newOptions)};\n;")
-        file_data.insert(replace_index + 6, "isPhysicsOn = false;\n};\n")
-        file_data.insert(replace_index + 7,
+        file_data.insert(replace_index + 4,
+                         'newOptions={"layout":{"hierarchical":{"enabled":false}}};\n')
+        file_data.insert(replace_index + 5, "network.setOptions(newOptions);\n")
+        file_data.insert(replace_index + 6,
+                         'newOptions={"physics":{"enabled":false}};\n')
+        file_data.insert(replace_index + 7, "network.setOptions(newOptions);\n")
+        file_data.insert(replace_index + 8, "isPhysicsOn = false;\n}};\n")
+        file_data.insert(replace_index + 9,
                          "container.addEventListener('mouseover', disablePhysics);\n")
     with open(file_path, 'w') as file:
         for line in file_data:
@@ -39,8 +43,8 @@ def modify_html(file_path: Path) -> None:
 if __name__ == "__main__":
     # to run this example install the otlmow-converter in your local python environment
     html_path = Path("slagbomen_visual.html")
-    objects = list(to_objects(Path("DA-2024-35924_export.xlsx")))
-
+    # objects = list(to_objects(Path("DA-2024-35924_export.xlsx")))
+    objects = list(to_objects(Path("slagbomen_example.xlsx")))
     PyVisWrapper().show(list_of_objects= objects,
                         html_path=html_path,  launch_html=False)
 
