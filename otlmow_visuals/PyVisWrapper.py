@@ -13,6 +13,7 @@ from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject, \
     dynamic_create_instance_from_ns_and_name
 from otlmow_model.OtlmowModel.Helpers import OTLObjectHelper
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
+from otlmow_model.OtlmowModel.Helpers.generated_lists import get_hardcoded_relation_dict
 from pyvis import network as networkx
 
 
@@ -184,21 +185,24 @@ class PyVisWrapper:
 
         assets = []
         relations = []
-        relations_per_asset = defaultdict(list)
+        relations_per_asset_doel = defaultdict(list)
+        relations_per_asset_bron = defaultdict(list)
         for o in list_of_objects:
             if is_relation(o):
                 relations.append(o)
-                # relations_per_asset[o.bronAssetId.identificator].append(o)
-                relations_per_asset[o.doelAssetId.identificator].append(o)
+                self.add_object_to_ordering(o, relations_per_asset_doel,o.doelAssetId.identificator)
+                self.add_object_to_ordering(o, relations_per_asset_bron,o.bronAssetId.identificator)
             else:
                 assets.append(o)
 
         nodes_created = self.create_nodes(g, assets)
 
         # remove relations to asset that have to many relation create a new node with one relation
-        self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset)
+        self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset_doel)
+        self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset_bron,use_bron=False)
 
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
+
         options = ('options = {'
                    '"nodes": {"font":{"bold":{"size": 18}}}, '
                    '"interaction": {"dragView": true}, '
@@ -518,30 +522,71 @@ class PyVisWrapper:
         if not self.notebook_mode and launch_html:
             webbrowser.open(str(html_path))
 
-    def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset):
+    def add_object_to_ordering(self, o, relations_per_asset_doel, asset_id):
+        typeURI = o.typeURI
+        if not typeURI in relations_per_asset_doel:
+            relations_per_asset_doel[typeURI] = defaultdict(dict)
+
+        if hasattr(o, "rol"):
+            rol = o.rol
+        else:
+            rol = "None"
+        if not rol in relations_per_asset_doel[typeURI]:
+            relations_per_asset_doel[typeURI][rol] = defaultdict(
+                list)
+        relations_per_asset_doel[typeURI][rol][asset_id].append(o)
+
+    def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset,use_bron = True):
         assets_with_to_many = []
         assets_count = len(assets)
+
+        single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(
+            relations_per_asset)
+
         for asset in assets:
             if asset.typeURI == 'http://purl.org/dc/terms/Agent':
                 asset_id = asset.agentId.identificator
             else:
                 asset_id = asset.assetId.identificator
-            if asset_id in relations_per_asset.keys():
-                if len(relations_per_asset[asset_id]) > assets_count * 0.7:
+
+
+
+            if asset_id in single_level_dict.keys():
+                # for relations_per_asset in single_level_dict[asset_id]:
+                relations_per_asset = single_level_dict[asset_id]
+                if len(relations_per_asset) > assets_count * 0.5:
                     assets_with_to_many.append(asset)
                     # remove the relations from the original list
-                    for relation in relations_per_asset[asset_id]:
+                    for relation in relations_per_asset:
                         relations.remove(relation)
-                    self.create_special_node(g,
-                                             [rel.bronAssetId.identificator for rel in relations])
 
-                    relatie = relations_per_asset[asset_id][0]
-                    relatie.bronAssetId.identificator = "1"
+                    relatie = relations_per_asset[0]
+                    new_node_id= relatie.assetId.identificator
+                    relatie.assetId.identificator = "1"
+                    if use_bron:
+                        self.create_special_node(g,new_node_id=new_node_id,
+                                                 list_of_ids= [rel.bronAssetId.identificator for rel in relations])
+                        relatie.bronAssetId.identificator = new_node_id
+                    else:
+                        self.create_special_node(g,new_node_id=new_node_id,
+                                                 list_of_ids= [rel.doelAssetId.identificator for rel in
+                                                  relations])
+                        relatie.doelAssetId.identificator = new_node_id
 
-                    asset_ids = (asset_id, "1")
-
+                    asset_ids = (asset_id, new_node_id)
                     self.create_relation_edge(asset_ids, g, relatie)
 
+    def recursive_unpack_nested_dict_to_single_level_dict(self, nested_dicts:dict, single_level_dict =None):
+        if not single_level_dict:
+            single_level_dict = defaultdict(list)
+        for key,value in nested_dicts.items():
+            if isinstance(value,list):
+                single_level_dict[key].extend(value)
+            else:
+                single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(value, single_level_dict)
+
+
+        return single_level_dict
     def create_nodes(self, g, list_of_objects: [OTLObject]) -> [OTLObject]:
         list_of_objects = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
@@ -730,7 +775,7 @@ class PyVisWrapper:
         return id.split("-")[0] if OTLObjectHelper.is_aim_id(id) else id
 
     @classmethod
-    def create_special_node(cls,g, list_of_ids:list):
+    def create_special_node(cls,g,new_node_id, list_of_ids:list):
         naam ="Collectie:\n"
         for identificator in list_of_ids:
             naam += f'{cls.abbreviate_if_AIM_id(identificator)[:36]}\n'
@@ -742,7 +787,7 @@ class PyVisWrapper:
         size = 20
         shape = 'box'  # 'diamond'
 
-        node_id = "1"
+        node_id = new_node_id
         g.add_node(node_id,
                    label=naam,
                    shape=shape,
