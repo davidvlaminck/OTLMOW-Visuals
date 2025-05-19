@@ -4,6 +4,7 @@ import re
 import warnings
 import webbrowser
 from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 from random import choice
 from re import Match
@@ -11,6 +12,9 @@ from typing import Optional
 
 from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject, \
     dynamic_create_instance_from_ns_and_name
+from otlmow_model.OtlmowModel.BaseClasses.RelationInteractor import RelationInteractor
+from otlmow_model.OtlmowModel.Classes.Agent import Agent
+from otlmow_model.OtlmowModel.Classes.ImplementatieElement.AIMObject import AIMObject
 from otlmow_model.OtlmowModel.Helpers import OTLObjectHelper
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
 from otlmow_model.OtlmowModel.Helpers.generated_lists import get_hardcoded_relation_dict
@@ -20,8 +24,9 @@ from pyvis import network as networkx
 
 
 class PyVisWrapper:
-
+    max_screen_name_char_count = 17
     def __init__(self, notebook_mode: bool = False):
+
         if notebook_mode:
             warnings.warn("set the nodebook mode using the show method")
         self.notebook_mode = notebook_mode
@@ -534,6 +539,42 @@ class PyVisWrapper:
                 list)
         relations_per_asset_doel[typeURI][rol][asset_id].append(o)
 
+    @classmethod
+    def get_corrected_identificator(cls, otl_object: RelationInteractor):
+        identificator = "no_identificator"
+        if hasattr(otl_object, "assetId"):
+            identificator = str(otl_object.assetId.identificator)
+        elif hasattr(otl_object, "agentId"):
+            identificator = str(otl_object.agentId.identificator)
+
+        return identificator
+
+    def get_screen_name(cls, otl_object: RelationInteractor) -> Optional[str]:
+        if otl_object is None:
+            return None
+        naam = cls.abbreviate_if_AIM_id(cls.get_corrected_identificator(otl_object))
+        if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+            agent: Agent = otl_object
+            # agent will always be external
+            external_tranlation = "extern"
+
+            if hasattr(agent, 'naam') and agent.naam:
+                naam = " ".join([agent.naam, f"({external_tranlation})"])
+            else:
+                naam = " ".join([naam, f"({external_tranlation})"])
+        else:
+            aim_object: AIMObject =  otl_object
+            if hasattr(aim_object, 'naam') and aim_object.naam:
+                naam = aim_object.naam
+            else:
+                naam = naam
+
+            if aim_object.assetId.toegekendDoor == "OTL Wizard 2":
+                external_tranlation = "external"
+                naam = " ".join([naam, f"({external_tranlation})"])
+
+        return naam
+
     def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset,
                                            use_bron=True):
         assets_with_to_many = []
@@ -542,11 +583,11 @@ class PyVisWrapper:
         single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(
             relations_per_asset)
 
+        asset_id_to_display_name_dict = {self.get_corrected_identificator(asset): self.get_screen_name(asset) for asset in assets}
+
+
         for asset in assets:
-            if asset.typeURI == 'http://purl.org/dc/terms/Agent':
-                asset_id = asset.agentId.identificator
-            else:
-                asset_id = asset.assetId.identificator
+            asset_id = self.get_corrected_identificator(asset)
 
             if asset_id in single_level_dict.keys():
                 # for relations_per_asset in single_level_dict[asset_id]:
@@ -562,12 +603,12 @@ class PyVisWrapper:
                     relatie.assetId.identificator = "1"
                     if use_bron:
                         self.create_special_node(g, new_node_id=new_node_id,
-                                                 list_of_ids=[rel.bronAssetId.identificator for rel
+                                                 list_of_ids=[asset_id_to_display_name_dict[rel.bronAssetId.identificator] for rel
                                                               in relations_per_asset])
                         relatie.bronAssetId.identificator = new_node_id
                     else:
                         self.create_special_node(g, new_node_id=new_node_id,
-                                                 list_of_ids=[rel.doelAssetId.identificator for rel
+                                                 list_of_ids=[asset_id_to_display_name_dict[rel.doelAssetId.identificator] for rel
                                                               in
                                                               relations_per_asset])
                         relatie.doelAssetId.identificator = new_node_id
@@ -584,19 +625,22 @@ class PyVisWrapper:
             else:
                 single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(value, single_level_dict)
 
-
         return single_level_dict
+
     def create_nodes(self, g, list_of_objects: [OTLObject]) -> [OTLObject]:
         list_of_objects = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         nodes = []
         for index, otl_object in enumerate(list_of_objects):
-            if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
-                naam = f'{self.abbreviate_if_AIM_id(otl_object.agentId.identificator)[:36]}\n{otl_object.__class__.__name__}'
-            else:
-                naam = f'{self.abbreviate_if_AIM_id(otl_object.assetId.identificator)[:36]}\n{otl_object.__class__.__name__}'
-            if hasattr(otl_object, 'naam') and otl_object.naam:
-                naam = f'{otl_object.naam}\n{otl_object.__class__.__name__}'
+            screen_name = self.get_screen_name(otl_object=otl_object)
+
+            # if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+            #     naam = f'{self.abbreviate_if_AIM_id(otl_object.agentId.identificator)[:self.max_screen_name_char_count]}\n<b>{otl_object.__class__.__name__}</b>'
+            # else:
+            #     naam = f'{self.abbreviate_if_AIM_id(otl_object.assetId.identificator)[:self.max_screen_name_char_count]}\n<b>{otl_object.__class__.__name__}</b>'
+            # if hasattr(otl_object, 'naam') and otl_object.naam:
+            #     naam = f'{otl_object.naam}\n<b>{otl_object.__class__.__name__}</b>'
+            naam = f'{screen_name[:self.max_screen_name_char_count]}\n<b>{otl_object.__class__.__name__}</b>'
 
             selected_color = self.random_color_if_not_in_dict(otl_object.typeURI)
 
@@ -617,9 +661,10 @@ class PyVisWrapper:
                        label=naam,
                        shape=shape,
                        size=size,
-                       color=selected_color)
+                       color=selected_color,
+                       font={"multi":True})
 
-            g.nodes[index]['title'] = tooltip
+            g.get_node(node_id)['title'] = tooltip
 
             nodes.append(otl_object)
         return nodes
@@ -674,11 +719,11 @@ class PyVisWrapper:
                 random_color = self.awv_color_list[len(self.color_dict)]
                 self.color_dict[type_uri] = random_color
             else:
-
                 random_color = choice(self.list_of_colors)
                 while random_color in self.color_dict.values():
                     random_color = choice(self.list_of_colors)
                 self.color_dict[type_uri] = random_color
+
         return self.color_dict[type_uri]
 
     @classmethod
@@ -771,13 +816,15 @@ class PyVisWrapper:
 
     @classmethod
     def abbreviate_if_AIM_id(cls,id):
-        return id.split("-")[0] if OTLObjectHelper.is_aim_id(id) else id
+        return id.split("-")[0] + "-..." if OTLObjectHelper.is_aim_id(id) else id
 
     @classmethod
     def create_special_node(cls,g,new_node_id, list_of_ids:list):
-        naam ="Collectie:\n"
-        for identificator in list_of_ids:
-            naam += f'{cls.abbreviate_if_AIM_id(identificator)[:36]}\n'
+        asset_count = len(list_of_ids)
+        naam =f"<i><b>Collectie({asset_count})</b></i>"
+        tooltip = f"Collectie({asset_count}):\n"
+        for index,identificator in enumerate(list_of_ids):
+            tooltip += f'{(index+1)}: {identificator[:cls.max_screen_name_char_count]}\n'
 
 
         selected_color = "#CCCCCC"
@@ -791,6 +838,8 @@ class PyVisWrapper:
                    label=naam,
                    shape=shape,
                    size=size,
-                   color=selected_color)
+                   color=selected_color,
+                   font={"multi":True})
+        g.get_node(node_id)['title'] = tooltip
 
 
