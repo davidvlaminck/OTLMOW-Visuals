@@ -19,9 +19,7 @@ from pyvis import network as networkx
 
 
 
-class PyVisWrapper7:
-
-
+class PyVisWrapper:
 
     def __init__(self, notebook_mode: bool = False):
         if notebook_mode:
