@@ -30,11 +30,45 @@ def modify_html(file_path: Path) -> None:
                          'newOptions={"layout":{"hierarchical":{"enabled":false}}};\n')
         file_data.insert(replace_index + 5, "network.setOptions(newOptions);\n")
         file_data.insert(replace_index + 6,
-                         'newOptions={"physics":{"enabled":false}};\n')
+                         'newOptions={\"physics\":{\"enabled\":false}};\n AddEdge("bareel", "licht","#000000","to");\n')
         file_data.insert(replace_index + 7, "network.setOptions(newOptions);\n")
         file_data.insert(replace_index + 8, "isPhysicsOn = false;\n}};\n")
         file_data.insert(replace_index + 9,
                          "container.addEventListener('mouseover', disablePhysics);\n")
+
+        file_data.insert(replace_index + 10,"function AddEdge(from_id, to_id,color,arrow)")
+        file_data.insert(replace_index + 11,"{")
+        file_data.insert(replace_index + 12,    'network.body.data.edges.add([{'
+                   ' "arrowStrikethrough": false,'
+                    '"arrows": arrow,'
+                   ' "color": color,'
+                    '"from": from_id,'
+                    '"label": "beheerder",'
+                  '  "smooth": {'
+                       ' "enabled": false'
+                '    },'
+            '        "to": to_id,'
+             '       "width": 2'
+                '}]);')
+        file_data.insert(replace_index + 13,"}")
+
+        file_data.insert(replace_index + 14, "function AddEdgeWithLabel(from_id, to_id,color,arrow,label)")
+        file_data.insert(replace_index + 15, "{")
+        file_data.insert(replace_index + 16, 'network.body.data.edges.add([{'
+                                             ' "arrowStrikethrough": false,'
+                                             '"arrows": arrow,'
+                                             ' "color": color,'
+                                             '"from": from_id,'
+                                             '"label": label,'
+                                             '  "smooth": {'
+                                             ' "enabled": false'
+                                             '    },'
+                                             '        "to": to_id,'
+                                             '       "width": 2'
+                                             '}]);')
+        file_data.insert(replace_index + 17, "}")
+        # file_data.insert(replace_index + 14,"AddEdge('bareel', 'licht');")
+
     with open(file_path, 'w') as file:
         for line in file_data:
             file.write(line)

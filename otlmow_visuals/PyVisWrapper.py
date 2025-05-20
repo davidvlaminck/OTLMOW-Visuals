@@ -4,20 +4,16 @@ import re
 import warnings
 import webbrowser
 from collections import defaultdict
-from copy import deepcopy
 from pathlib import Path
 from random import choice
-from re import Match
 from typing import Optional
 
-from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject, \
-    dynamic_create_instance_from_ns_and_name
+from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject
 from otlmow_model.OtlmowModel.BaseClasses.RelationInteractor import RelationInteractor
 from otlmow_model.OtlmowModel.Classes.Agent import Agent
 from otlmow_model.OtlmowModel.Classes.ImplementatieElement.AIMObject import AIMObject
 from otlmow_model.OtlmowModel.Helpers import OTLObjectHelper
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
-from otlmow_model.OtlmowModel.Helpers.generated_lists import get_hardcoded_relation_dict
 from pyvis import network as networkx
 
 
@@ -26,7 +22,8 @@ from pyvis import network as networkx
 class PyVisWrapper:
     max_screen_name_char_count = 17
     def __init__(self, notebook_mode: bool = False):
-
+        self.special_nodes = []
+        self.special_edges = []
         if notebook_mode:
             warnings.warn("set the nodebook mode using the show method")
         self.notebook_mode = notebook_mode
@@ -200,6 +197,8 @@ class PyVisWrapper:
 
         nodes_created = self.create_nodes(g, assets)
 
+        self.special_nodes = []
+        self.special_edges = []
         # remove relations to asset that have to many relation create a new node with one relation
         self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset_doel)
         self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset_bron,use_bron=False)
@@ -580,8 +579,9 @@ class PyVisWrapper:
         single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(
             relations_per_asset)
 
-        asset_id_to_display_name_dict = {self.get_corrected_identificator(asset): self.get_screen_name(asset) for asset in assets}
-
+        asset_id_to_display_name_dict = {
+            self.get_corrected_identificator(asset): self.get_screen_name(asset) for asset in
+            assets}
 
         for asset in assets:
             asset_id = self.get_corrected_identificator(asset)
@@ -596,22 +596,31 @@ class PyVisWrapper:
                         relations.remove(relation)
 
                     relatie = relations_per_asset[0]
-                    new_node_id = relatie.assetId.identificator
-                    relatie.assetId.identificator = "1"
+                    new_node_id = f"special_node_{len(self.special_nodes)}"
+                    relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}"
                     if use_bron:
                         self.create_special_node(g, new_node_id=new_node_id,
-                                                 list_of_ids=[asset_id_to_display_name_dict[rel.bronAssetId.identificator] for rel
+                                                 list_of_ids=[asset_id_to_display_name_dict[
+                                                                  rel.bronAssetId.identificator]
+                                                              for rel
                                                               in relations_per_asset])
                         relatie.bronAssetId.identificator = new_node_id
+
                     else:
                         self.create_special_node(g, new_node_id=new_node_id,
-                                                 list_of_ids=[asset_id_to_display_name_dict[rel.doelAssetId.identificator] for rel
+                                                 list_of_ids=[asset_id_to_display_name_dict[
+                                                                  rel.doelAssetId.identificator]
+                                                              for rel
                                                               in
                                                               relations_per_asset])
                         relatie.doelAssetId.identificator = new_node_id
 
+                    self.special_nodes.append(g.get_node(new_node_id))
+
                     asset_ids = (asset_id, new_node_id)
                     self.create_relation_edge(asset_ids, g, relatie)
+                    self.special_edges.extend([edge for edge in g.get_edges() if
+                                               edge["id"] == relatie.assetId.identificator])
 
     def recursive_unpack_nested_dict_to_single_level_dict(self, nested_dicts:dict, single_level_dict =None):
         if not single_level_dict:
@@ -688,18 +697,21 @@ class PyVisWrapper:
                 if (
                         relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
                         and relatie.rol is not None):
-                    g.add_edge(source=relatie.bronAssetId.identificator,
+                    g.add_edge(id= relatie.assetId.identificator,
+                               source=relatie.bronAssetId.identificator,
                                to=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
                                width=2, arrowStrikethrough=False, label=relatie.rol,
                                smooth={"enabled": False})
                 else:
-                    g.add_edge(source=relatie.bronAssetId.identificator,
+                    g.add_edge(id= relatie.assetId.identificator,
+                               source=relatie.bronAssetId.identificator,
                                to=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
                                width=2, arrowStrikethrough=False, smooth={"enabled": False})
             else:
-                g.add_edge(to=relatie.bronAssetId.identificator,
+                g.add_edge(id= relatie.assetId.identificator,
+                           to=relatie.bronAssetId.identificator,
                            source=relatie.doelAssetId.identificator,
                            color=self.map_relation_to_color(relatie),
                            width=2, arrowStrikethrough=False, label='remove_arrow',
@@ -828,7 +840,7 @@ class PyVisWrapper:
 
 
         size = 20
-        shape = 'box'  # 'diamond'
+        shape = 'database'  # 'diamond'
 
         node_id = new_node_id
         g.add_node(node_id,
@@ -839,4 +851,20 @@ class PyVisWrapper:
                    font={"multi":True})
         g.get_node(node_id)['title'] = tooltip
 
+
+    def create_edge_inject_arguments(self, relatie):
+
+        edge_inject_arguments = {"id": relatie.assetId.identificator,
+                                 "from_id": relatie.bronAssetId.identificator,
+                                 "to_id": relatie.doelAssetId.identificator,
+                                 "color": self.map_relation_to_color(relatie)}
+
+        if is_directional_relation(relatie):
+            edge_inject_arguments["arrow"] = "to"
+            if (
+                    relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
+                    and relatie.rol is not None):
+                edge_inject_arguments["label"] = relatie.rol
+
+        return edge_inject_arguments
 
