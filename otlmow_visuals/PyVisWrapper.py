@@ -592,55 +592,56 @@ class PyVisWrapper:
 
             if asset_id in single_level_dict.keys():
                 # for relations_per_asset in single_level_dict[asset_id]:
-                relations_per_asset = single_level_dict[asset_id]
-                if len(relations_per_asset) > assets_count * 0.5:
-                    assets_with_to_many.append(asset)
-                    # remove the relations from the original list
-                    for relation in relations_per_asset:
-                        relations.remove(relation)
+                relation_lists_per_asset = single_level_dict[asset_id]
+                for relations_per_asset in relation_lists_per_asset:
+                    if len(relations_per_asset) > assets_count * 0.5:
+                        assets_with_to_many.append(asset)
+                        # remove the relations from the original list
+                        for relation in relations_per_asset:
+                            relations.remove(relation)
 
-                    relatie = relations_per_asset[0]
-                    new_node_id = f"special_node_{len(self.special_nodes)}"
+                        relatie = relations_per_asset[0]
+                        new_node_id = f"special_node_{len(self.special_nodes)}"
 
-                    if use_bron:
-                        list_of_ids = []
-                        for rel in relations_per_asset:
-                            display_name =  self.asset_id_to_display_name_dict[rel.bronAssetId.identificator]
-                            list_of_ids.append(display_name)
-                            self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
-                            self.collection_id_to_list_of_relation_ids[new_node_id].append((rel.assetId.identificator,display_name))
+                        if use_bron:
+                            list_of_ids = []
+                            for rel in relations_per_asset:
+                                display_name =  self.asset_id_to_display_name_dict[rel.bronAssetId.identificator]
+                                list_of_ids.append(display_name)
+                                self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
+                                self.collection_id_to_list_of_relation_ids[new_node_id].append((rel.assetId.identificator,display_name))
 
-                        self.create_special_node(g, new_node_id=new_node_id,
-                                                 list_of_ids=list_of_ids)
-                        relatie.bronAssetId.identificator = new_node_id
-                        relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}"
-                    else:
-                        list_of_ids = []
-                        for rel in relations_per_asset:
-                            display_name = self.asset_id_to_display_name_dict[
-                                rel.doelAssetId.identificator]
-                            list_of_ids.append(display_name)
-                            self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
-                            self.collection_id_to_list_of_relation_ids[new_node_id].append(
-                                (rel.assetId.identificator, display_name))
+                            self.create_special_node(g, new_node_id=new_node_id,
+                                                     list_of_ids=list_of_ids)
+                            relatie.bronAssetId.identificator = new_node_id
+                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}"
+                        else:
+                            list_of_ids = []
+                            for rel in relations_per_asset:
+                                display_name = self.asset_id_to_display_name_dict[
+                                    rel.doelAssetId.identificator]
+                                list_of_ids.append(display_name)
+                                self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
+                                self.collection_id_to_list_of_relation_ids[new_node_id].append(
+                                    (rel.assetId.identificator, display_name))
 
-                        self.create_special_node(g, new_node_id=new_node_id,
-                                                 list_of_ids=list_of_ids)
-                        relatie.doelAssetId.identificator = new_node_id
-                        relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}"
-                    self.special_nodes.append(g.get_node(new_node_id))
+                            self.create_special_node(g, new_node_id=new_node_id,
+                                                     list_of_ids=list_of_ids)
+                            relatie.doelAssetId.identificator = new_node_id
+                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}"
+                        self.special_nodes.append(g.get_node(new_node_id))
 
-                    asset_ids = (asset_id, new_node_id)
-                    self.create_relation_edge(asset_ids, g, relatie)
-                    self.special_edges.extend([edge for edge in g.get_edges() if
-                                               edge["id"] == relatie.assetId.identificator])
+                        asset_ids = (asset_id, new_node_id)
+                        self.create_relation_edge(asset_ids, g, relatie)
+                        self.special_edges.extend([edge for edge in g.get_edges() if
+                                                   edge["id"] == relatie.assetId.identificator])
 
     def recursive_unpack_nested_dict_to_single_level_dict(self, nested_dicts:dict, single_level_dict =None):
         if not single_level_dict:
             single_level_dict = defaultdict(list)
         for key,value in nested_dicts.items():
             if isinstance(value,list):
-                single_level_dict[key].extend(value)
+                single_level_dict[key].append(value)
             else:
                 single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(value, single_level_dict)
 
