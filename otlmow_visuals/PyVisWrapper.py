@@ -816,7 +816,7 @@ class PyVisWrapper:
                     'var SubEdgesToOriginalRelationId = new Map();',
                     'document.addEventListener("DOMContentLoaded", (event) => ',
                     '{',
-                    '   document.getElementById("mynetwork").style.display="flex";',
+                    # '   document.getElementById("mynetwork").style.display="flex";',
                     "   network.on('selectEdge', function(params) ",
                     "   {",
                     "       if (nodeSelected)",
