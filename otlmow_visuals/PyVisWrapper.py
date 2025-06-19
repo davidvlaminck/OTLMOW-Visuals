@@ -449,7 +449,7 @@ class PyVisWrapper:
      ' direction: "RL",'        
      ' sortMethod:"hubsize",'  
       'shakeTowards: "leaves"'  
-   ' }'
+    ' }'
                     ' },'
                     '"configure":{'
                     '    "enabled": true,'
@@ -814,6 +814,8 @@ class PyVisWrapper:
                     'var relationIdToTotalSubEdgeCount = new Map();',
                     'var relationIdToJointNodes = new Map();',
                     'var SubEdgesToOriginalRelationId = new Map();',
+                    'var ctrlSelectedNodesList = []; //to store all the nodeIds that have been clicked while holding down ctrl',
+                    'var lastCtrlSelectedNode = null',
                     'document.addEventListener("DOMContentLoaded", (event) => ',
                     '{',
                     # '   document.getElementById("mynetwork").style.display="flex";',
@@ -836,21 +838,49 @@ class PyVisWrapper:
                     "   {",
                     "       if (params.nodes.length > 0) ",
                     "       {",
-                    # "           console.log('node clicked:', params.nodes);",
+                    "           if (params.event.srcEvent.ctrlKey)",
+                    "           {",
+                    "               lastCtrlSelectedNode = params.nodes[0]",
+                    "               ctrlSelectedNodesList.push(lastCtrlSelectedNode);",
+                    "               network.selectNodes(ctrlSelectedNodesList);",
+                    "           }",
+                    "           else",
+                    "               ctrlSelectedNodesList = params.nodes;",
+                    "           ",
+                    "           console.log('node clicked:', params);",
                     "           nodeSelected = true //just here to make sure the event for edge selection is not triggered",
-                    # "           selectedNode = network.getPosition(params.nodes[0])",
-                    # "           console.log('clicked at DOM', params.pointer.DOM, 'and canvas',params.pointer.canvas);",
-                    # "           console.log('selectedNodePosition:', selectedNode);",
                     "       }",
                     "   });",
                     "   network.on('select', function(params) ",
                     "   {",
                     "       console.log('selection changed clicked:', params.nodes,params.edges);",
+                    "       currentlyClickedNode = network.getNodeAt(params.pointer.DOM);",
+                    "       console.log('currentlyClickedNode:', currentlyClickedNode);",
+                    "       if(currentlyClickedNode)",
+                    "       {" ,
+                    "           if(lastCtrlSelectedNode != currentlyClickedNode &&",
+                    "               params.event.srcEvent.ctrlKey && ",
+                    "               ctrlSelectedNodesList.includes(currentlyClickedNode)) ",
+                    "           {",
+                    "               const index = ctrlSelectedNodesList.indexOf(currentlyClickedNode);",
+                    "               if (index > -1) // only splice array when item is found",
+                    "               { ",
+                    "                   ctrlSelectedNodesList.splice(index, 1); // 2nd parameter means remove one item only",
+                    "                   network.selectNodes(ctrlSelectedNodesList);",
+                    "               }",
+                    "           }",
+                    "       }",
+                    "       else if(!params.event.srcEvent.ctrlKey)",
+                    "       {",
+                    "           ctrlSelectedNodesList = [];",
+                    "       }",
+                    "       lastCtrlSelectedNode = null;" ,
                     "       if(params.edges.length == 1)",
                     "       {",
                     "           var clickedEdge = network.body.data.edges._data.get(params.edges[0]);",
                     "           addEdgeJointNode(params.pointer.canvas.x, params.pointer.canvas.y, clickedEdge);",
                     "           network.selectEdges([]);",
+                    # "           sendCurrentCombinedDataToPython()",
                     "       }",
                     "   });",
                     "   network.on('hoverNode', function(params) ",
@@ -858,7 +888,7 @@ class PyVisWrapper:
                     # "       console.log('hoverNode:', params);",
                     "       if (params.node.includes('edgeJoint'))",
                     "       {",
-                    "           network.body.data.nodes.updateOnly({'id': params.node,'opacity': 1});",
+                    "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 1}, notify_python=false);",
                     "       }",
                     "   });",
                     "   network.on('blurNode', function(params) ",
@@ -866,7 +896,7 @@ class PyVisWrapper:
                     # "       console.log('blurNode:', params);",
                     "       if (params.node.includes('edgeJoint'))",
                     "       {",
-                    "           network.body.data.nodes.updateOnly({'id': params.node,'opacity': 0});",
+                    "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 0}, notify_python=false);",
                     "       }",
                     "   });",
                     "   network.on('dragEnd', function(params) ",
@@ -879,7 +909,7 @@ class PyVisWrapper:
                     "           {",
                     "               var newPos = network.getPosition(draggedNodeId)",
                     "               var draggedNode = network.body.data.nodes._data.get(draggedNodeId);",
-                    "               network.body.data.nodes.updateOnly({'id': draggedNodeId,'x':  newPos.x,'y': newPos.y});",
+                    "               applyUpdateNodeInNetwork({'id': draggedNodeId,'x':  newPos.x,'y': newPos.y});",
                     "           }",
                     "      }",
                     "   });",
@@ -895,7 +925,7 @@ class PyVisWrapper:
                     "       relationIdToJointNodes.set(edgeId, []);",
                     '   var newEdgeJointNodeId = "edgeJoint_" + edgeJointNodeNbrPerEdge + "_" + edgeId;',
                     "   relationIdToJointNodes.get(edgeId).push(newEdgeJointNodeId);"
-                    "   network.body.data.nodes.add([{"
+                    "   applyAddNodesToNetwork([{"
                     "       'x': x,"
                     "       'y': y,"
                     '       "color": "#" + clickedEdge["color"],'
@@ -954,10 +984,21 @@ class PyVisWrapper:
                     "   newSubEdge2Data.to = newEdgeJointNodeId;",
                     "   newSubEdge2Data.arrows = null;",
                     "   ",
-                    "   network.body.data.edges.add([newSubEdge1Data,newSubEdge2Data])",
-                    "   network.body.data.edges.remove([edgeId])",
+                    "   applyAddEdgesToNetwork([newSubEdge1Data,newSubEdge2Data])",
+                    "   applyRemoveEdgesFromNetwork([edgeId])",
                     "}",
                     ]
+        # the function that communicates changes in the network to the python backend
+        add_data.extend(cls.create_sendNetworkChangedNotificationToPython_js_function())
+        # interfaces that are intended as the only ones allowed to edit the network data
+        # Because they will always notify the python backend of the change (see js function above)
+        add_data.extend(cls.create_applyRemoveEdgesFromNetwork_js_function())
+        add_data.extend(cls.create_applyRemoveNodesFromNetwork_js_function())
+        add_data.extend(cls.create_applyAddNodesToNetwork_js_function())
+        add_data.extend(cls.create_applyAddEdgesToNetwork_js_function())
+        add_data.extend(cls.create_applyUpdateEdgeInNetwork_js_function())
+        add_data.extend(cls.create_applyUpdateNodeInNetwork_js_function())
+
         cls.replace_and_add_lines(file_data,index_of_function + 4,"","",add_data)
 
 
@@ -982,6 +1023,92 @@ class PyVisWrapper:
         with open(file_path, 'w') as file:
             for line in file_data:
                 file.write(line)
+
+    @classmethod
+    def create_sendNetworkChangedNotificationToPython_js_function(cls):
+        return ['function sendNetworkChangedNotificationToPython()',
+                "{",
+                "   //function that uses the QWebChannel to notify the python application that the network has changed",
+                "   console.log('Network changed through correct interface'); ",
+                "   if (window.backend)",
+                "   {",
+                "       window.backend.receive_network_changed_notification();",
+                "       console.log('called window.backend.receive_network_changed_notification()'); ",
+                "   }"
+                "   else",
+                "   {"
+                '       console.log("sendNetworkChangedNotificationToPython: QWebChannel is not initialized yet.");',
+                # '       alert("DataVisualisationScreen: QWebChannel is not initialized");',
+                "   }",
+
+                "}"]
+
+    @classmethod
+    def create_applyRemoveEdgesFromNetwork_js_function(cls):
+        return ['function applyRemoveEdgesFromNetwork(edgeIdList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.edges.remove(edgeIdList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyRemoveNodesFromNetwork_js_function(cls):
+        return ['function applyRemoveNodesFromNetwork(nodeIdList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.nodes.remove(nodeIdList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyAddNodesToNetwork_js_function(cls):
+        return ['function applyAddNodesToNetwork(nodeCreationDataList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.nodes.add(nodeCreationDataList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyAddEdgesToNetwork_js_function(cls):
+        return ['function applyAddEdgesToNetwork(edgeCreationDataList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.edges.add(edgeCreationDataList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyUpdateEdgeInNetwork_js_function(cls):
+        return ['function applyUpdateEdgeInNetwork(changedEdgeData, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.edges.updateOnly(changedEdgeData);',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyUpdateNodeInNetwork_js_function(cls):
+        return ['function applyUpdateNodeInNetwork(changedNodeData, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.nodes.updateOnly(changedNodeData);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+
     @classmethod
     def modify_edges_in_html(cls, file_data, index_of_edges):
         if index_of_edges == -1:
