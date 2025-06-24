@@ -181,7 +181,7 @@ class PyVisWrapper:
                 unique.setdefault(elem.assetId.identificator, elem)
         return list(unique.values())
 
-    def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), visualisation_option:int = 1 , launch_html: bool = True,
+    def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), visualisation_option:int = 1, launch_html: bool = True,
              notebook_mode: bool = False, **kwargs) -> None:
         if notebook_mode and kwargs.get('cdn_resources') != 'in_line':
             kwargs['cdn_resources'] = 'in_line'
@@ -285,7 +285,7 @@ class PyVisWrapper:
                       '},'
                       '"layout" : {'
                       '"clusterThreshold": 150'
-                      ' },'
+                      ' }'
                     '}')
 
         # shell setting
@@ -616,11 +616,27 @@ class PyVisWrapper:
                     'var relationIdToTotalSubEdgeCount = new Map();',
                     'var relationIdToJointNodes = new Map();',
                     'var SubEdgesToOriginalRelationId = new Map();',
+                    'var newWidth = 0;',
+                    'var newHeight = 0;',
                     'var ctrlSelectedNodesList = []; //to store all the nodeIds that have been clicked while holding down ctrl',
                     'var lastCtrlSelectedNode = null',
                     'document.addEventListener("DOMContentLoaded", (event) => ',
                     '{',
-                    # '   document.getElementById("mynetwork").style.display="flex";',
+                    # '   network.on("beforeDrawing",  function(ctx) ',
+                    # '   {',
+                    # '       //fill the canvas with a white background before drawing',
+                    # '       // save current translate/zoom',
+                    # '       ctx.save();',
+                    # '       // reset transform to identity',
+                    # '       ctx.setTransform(1, 0, 0, 1, 0, 0);',
+                    # '       // fill background with solid white',
+                    # "       ctx.fillStyle = '#ffffff';",
+                    # '       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)',
+                    # '       // restore old transform',
+                    # '       ctx.restore();',
+                    # # '       console.log("before drawing: " + ctx.canvas.clientWidth + ", " + ctx.canvas.clientHeight);'
+                    # '   })'
+                    '   ',
                     "   network.on('selectEdge', function(params) ",
                     "   {",
                     "       if (nodeSelected)",
@@ -634,6 +650,7 @@ class PyVisWrapper:
                     "           var clickedEdge = network.body.data.edges._data.get(params.edges[0]);",
                     "           addEdgeJointNode(params.pointer.canvas.x, params.pointer.canvas.y,clickedEdge);",
                     "           network.selectEdges([]);",
+                    # "       sendCurrentCombinedDataToPython()",
                     "       }",
                     "   });",
                     "   network.on('selectNode', function(params) ",
@@ -713,6 +730,8 @@ class PyVisWrapper:
                     "               var draggedNode = network.body.data.nodes._data.get(draggedNodeId);",
                     "               applyUpdateNodeInNetwork({'id': draggedNodeId,'x':  newPos.x,'y': newPos.y});",
                     "           }",
+                    "           else",
+                    "               sendNetworkChangedNotificationToPython();",
                     "      }",
                     "   });",
                     '});',
@@ -720,13 +739,15 @@ class PyVisWrapper:
                     "{",
                     "   console.log(clickedEdge);",
                     '   var edgeId = clickedEdge["id"];',
+                    # "   var edgeJointNodeNbrPerEdge = network.body.data.nodes.length;",
                     "   var edgeJointNodeNbrPerEdge = 0;",
                     "   if ( relationIdToJointNodes.has(edgeId))",
                     "       edgeJointNodeNbrPerEdge =  relationIdToJointNodes.get(edgeId).length;",
                     "   else",
+                    # "   if (!relationIdToJointNodes.has(edgeId))",
                     "       relationIdToJointNodes.set(edgeId, []);",
                     '   var newEdgeJointNodeId = "edgeJoint_" + edgeJointNodeNbrPerEdge + "_" + edgeId;',
-                    "   relationIdToJointNodes.get(edgeId).push(newEdgeJointNodeId);"
+                    "   relationIdToJointNodes.get(edgeId).push(newEdgeJointNodeId);",
                     "   applyAddNodesToNetwork([{"
                     "       'x': x,"
                     "       'y': y,"
@@ -735,8 +756,10 @@ class PyVisWrapper:
                     '       "shape": "dot",'
                     '       "size": 10'
                     '   }])',
+                    "   console.log('newEdgeJointNodeId: ' + newEdgeJointNodeId);",
                     "   ",
                     "   addSubEdgesToEdgeJointNode(clickedEdge, newEdgeJointNodeId)",
+                    "   ",
                     "   "
                     "}",
                     "function addSubEdgesToEdgeJointNode(clickedEdge,newEdgeJointNodeId)",
@@ -744,6 +767,7 @@ class PyVisWrapper:
                     "   console.log(clickedEdge);",
                     '   var edgeId = clickedEdge["id"];',
                     "   var subEdge1Nbr = 0;",
+                    # "   var subEdge1Nbr = network.body.data.edges.length;",
                     "   ",
                     "   var originalEdgeId = edgeId",
                     "   if ( SubEdgesToOriginalRelationId.has(edgeId))",
@@ -764,15 +788,15 @@ class PyVisWrapper:
                     "       {"
                     "           relationIdToTotalSubEdgeCount.set(originalEdgeId, 0);",
                     "           relationIdToSubEdges.set(originalEdgeId, []);",
-                    "       }" 
+                    "       }"
                     "   }",
-                    "   var subEdge2Nbr = subEdge1Nbr + 1;",
+                    # "   var subEdge2Nbr = subEdge1Nbr + 1;",
                     "   ",
                     '   var newSubEdge1Id = "subEdge_" + subEdge1Nbr + "_" + originalEdgeId;',
-                    '   var newSubEdge2Id = "subEdge_" + subEdge2Nbr + "_" + originalEdgeId;',
+                    '   var newSubEdge2Id = "subEdge_sec_" + subEdge1Nbr + "_" + originalEdgeId;',
                     "   relationIdToSubEdges.get(originalEdgeId).push(newSubEdge1Id);",
                     "   relationIdToSubEdges.get(originalEdgeId).push(newSubEdge2Id);",
-                    "   relationIdToTotalSubEdgeCount.set(originalEdgeId, relationIdToTotalSubEdgeCount.get(originalEdgeId)+2);",
+                    "   relationIdToTotalSubEdgeCount.set(originalEdgeId, relationIdToTotalSubEdgeCount.get(originalEdgeId)+1);",
                     "   SubEdgesToOriginalRelationId.set(newSubEdge1Id, originalEdgeId);",
                     "   SubEdgesToOriginalRelationId.set(newSubEdge2Id,originalEdgeId);",
                     "   ",
@@ -786,6 +810,8 @@ class PyVisWrapper:
                     "   newSubEdge2Data.to = newEdgeJointNodeId;",
                     "   newSubEdge2Data.arrows = null;",
                     "   ",
+                    "   console.log('newSubEdge1Data.id: ' + newSubEdge1Data.id);",
+                    "   console.log('newSubEdge2Data.id: ' + newSubEdge2Data.id);",
                     "   applyAddEdgesToNetwork([newSubEdge1Data,newSubEdge2Data])",
                     "   applyRemoveEdgesFromNetwork([edgeId])",
                     "}",
@@ -800,7 +826,7 @@ class PyVisWrapper:
         add_data.extend(cls.create_applyAddEdgesToNetwork_js_function())
         add_data.extend(cls.create_applyUpdateEdgeInNetwork_js_function())
         add_data.extend(cls.create_applyUpdateNodeInNetwork_js_function())
-
+        
         cls.replace_and_add_lines(file_data,index_of_function + 4,"","",add_data)
 
 
@@ -909,7 +935,6 @@ class PyVisWrapper:
                 '   if(notify_python)',
                 '       sendNetworkChangedNotificationToPython();',
                 '}']
-
 
     @classmethod
     def modify_edges_in_html(cls, file_data, index_of_edges):
