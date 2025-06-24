@@ -8,6 +8,7 @@ from pathlib import Path
 from random import choice
 from typing import Optional
 
+
 from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject
 from otlmow_model.OtlmowModel.BaseClasses.RelationInteractor import RelationInteractor
 from otlmow_model.OtlmowModel.Classes.Agent import Agent
@@ -15,7 +16,7 @@ from otlmow_model.OtlmowModel.Classes.ImplementatieElement.AIMObject import AIMO
 from otlmow_model.OtlmowModel.Helpers import OTLObjectHelper
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
 from pyvis import network as networkx
-
+import networkx as nx
 
 class PyVisWrapper:
     max_screen_name_char_count = 17
@@ -317,10 +318,33 @@ class PyVisWrapper:
             g.set_options(options_2_spiderweb)
         elif visualisation_option == 3:
             print(options_3_shell)
-            g.set_options(options_3_shell)
+            g.set_options(options_3_shell) # only formatting the nodes, turns off physics and hierarchy
+
+            asset_ids = [ self.get_corrected_identificator(OTL_asset) for OTL_asset in assets ]
+            connected_edge_ids = [(OTL_relation.bronAssetId.identificator, OTL_relation.doelAssetId.identificator) for OTL_relation in relations]
+
+
+            # Compute shell layout positions
+            G = nx.Graph()
+            G.add_nodes_from(asset_ids)
+            G.add_edges_from(connected_edge_ids)
+            pos = nx.shell_layout(G)
+
+
+            scale = max((500/17) * len(asset_ids), 300)
+
+            # apply the shell graph positions to the pyvis network
+            for node_id, node_pos in pos.items():
+                node = g.get_node(node_id)
+                if node:
+                    node["x"] = node_pos[0]*scale
+                    node["y"] = node_pos[1]*scale
         else:
             print(options_1_hierarchisch)
             g.set_options(options_1_hierarchisch)
+
+
+
 
         g.write_html(str(html_path), notebook=notebook_mode)
         self.modify_html(Path(html_path), notebook=notebook_mode)
