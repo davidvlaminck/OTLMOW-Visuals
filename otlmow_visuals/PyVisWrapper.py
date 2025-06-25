@@ -15,7 +15,7 @@ from otlmow_model.OtlmowModel.Classes.Agent import Agent
 from otlmow_model.OtlmowModel.Classes.ImplementatieElement.AIMObject import AIMObject
 from otlmow_model.OtlmowModel.Helpers import OTLObjectHelper
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
-from pyvis import network as networkx
+from pyvis import network as pyvis_network
 import networkx as nx
 
 class PyVisWrapper:
@@ -186,7 +186,7 @@ class PyVisWrapper:
              notebook_mode: bool = False, **kwargs) -> None:
         if notebook_mode and kwargs.get('cdn_resources') != 'in_line':
             kwargs['cdn_resources'] = 'in_line'
-        g = networkx.Network(directed=True, notebook=notebook_mode, **kwargs)
+        g = pyvis_network.Network(directed=True, notebook=notebook_mode, **kwargs)
 
         assets = []
         relations = []
