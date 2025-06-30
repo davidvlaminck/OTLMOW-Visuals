@@ -226,7 +226,7 @@ class PyVisWrapper:
                       '           "maximum": 250'
                       '       }   '
                       '}, '
-                      '"interaction": {"dragView": true,"hover":true}, '
+                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false}, '
                       ' "layout": {'
                       '"hierarchical": {'
                       '"enabled": true,'
@@ -267,7 +267,7 @@ class PyVisWrapper:
                       '           "maximum": 250'
                       '       }   '
                       '}, '
-                      '"interaction": {"dragView": true}, '
+                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false}, '
                       '"physics":'
                       ' {'
                       '"barnesHut": '
@@ -305,7 +305,7 @@ class PyVisWrapper:
                               '           "maximum": 250'
                               '       }   '
                               '}, '
-                              '"interaction": {"dragView": true}, '
+                              '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false}, '
                               '"physics":'
                               '{'
                               ' "enabled": false'
@@ -685,7 +685,7 @@ class PyVisWrapper:
                     "           {",
                     "               lastCtrlSelectedNode = params.nodes[0]",
                     "               ctrlSelectedNodesList.push(lastCtrlSelectedNode);",
-                    "               network.selectNodes(ctrlSelectedNodesList);",
+                    "               network.selectNodes(ctrlSelectedNodesList,false);",
                     "           }",
                     "           else",
                     "               ctrlSelectedNodesList = params.nodes;",
@@ -709,7 +709,7 @@ class PyVisWrapper:
                     "               if (index > -1) // only splice array when item is found",
                     "               { ",
                     "                   ctrlSelectedNodesList.splice(index, 1); // 2nd parameter means remove one item only",
-                    "                   network.selectNodes(ctrlSelectedNodesList);",
+                    "                   network.selectNodes(ctrlSelectedNodesList,false);",
                     "               }",
                     "           }",
                     "       }",
@@ -718,13 +718,13 @@ class PyVisWrapper:
                     "           ctrlSelectedNodesList = [];",
                     "       }",
                     "       lastCtrlSelectedNode = null;" ,
-                    "       if(params.edges.length == 1)",
-                    "       {",
-                    "           var clickedEdge = network.body.data.edges._data.get(params.edges[0]);",
-                    "           addEdgeJointNode(params.pointer.canvas.x, params.pointer.canvas.y, clickedEdge);",
-                    "           network.selectEdges([]);",
-                    # "           sendCurrentCombinedDataToPython()",
-                    "       }",
+                    # "       if(params.edges.length == 1)",
+                    # "       {",
+                    # "           var clickedEdge = network.body.data.edges._data.get(params.edges[0]);",
+                    # "           addEdgeJointNode(params.pointer.canvas.x, params.pointer.canvas.y, clickedEdge);",
+                    # "           network.selectEdges([]);",
+                    # # "           sendCurrentCombinedDataToPython()",
+                    # "       }",
                     "   });",
                     "   network.on('hoverNode', function(params) ",
                     "   {",
