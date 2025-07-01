@@ -226,7 +226,7 @@ class PyVisWrapper:
                       '           "maximum": 250'
                       '       }   '
                       '}, '
-                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false}, '
+                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
                       ' "layout": {'
                       '"hierarchical": {'
                       '"enabled": true,'
@@ -238,14 +238,16 @@ class PyVisWrapper:
                       '"direction": "LR"'
                       '}'
                       '},'
-                      '"physics": {'
-                      '"hierarchicalRepulsion": {'
-                      '"centralGravity": 1.05,'
-                      '"springLength": 170,'
-                      '"springConstant": 1,'
-                      '"nodeDistance": 90,'
-                      '"avoidOverlap": 1'
-                      '},'
+                      '"physics": '
+                      '{'
+                      '     "hierarchicalRepulsion":    '
+                      '     {'
+                      '         "centralGravity": 1.05,'
+                      '         "springLength": 170,'
+                      '         "springConstant": 1,'
+                      '         "nodeDistance": 90,'
+                      '         "avoidOverlap": 1'
+                      '     },'
                       '"minVelocity": 0.75,'
                       '"solver": "hierarchicalRepulsion"'
                       '}'
@@ -267,7 +269,7 @@ class PyVisWrapper:
                       '           "maximum": 250'
                       '       }   '
                       '}, '
-                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false}, '
+                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
                       '"physics":'
                       ' {'
                       '"barnesHut": '
@@ -305,7 +307,7 @@ class PyVisWrapper:
                               '           "maximum": 250'
                               '       }   '
                               '}, '
-                              '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false}, '
+                              '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
                               '"physics":'
                               '{'
                               ' "enabled": false'
@@ -640,10 +642,13 @@ class PyVisWrapper:
                     'var relationIdToTotalSubEdgeCount = new Map();',
                     'var relationIdToJointNodes = new Map();',
                     'var SubEdgesToOriginalRelationId = new Map();',
+                    'var edgeJointNodesIdToConnectionDataDict = new Map(); ',
                     'var newWidth = 0;',
                     'var newHeight = 0;',
                     'var ctrlSelectedNodesList = []; //to store all the nodeIds that have been clicked while holding down ctrl',
-                    'var lastCtrlSelectedNode = null',
+                    'var lastCtrlSelectedNode = null;',
+                    'var currentlyHoveredNode = null;',
+                    'var noTooltips = false;',
                     'document.addEventListener("DOMContentLoaded", (event) => ',
                     '{',
                     # '   network.on("beforeDrawing",  function(ctx) ',
@@ -670,13 +675,17 @@ class PyVisWrapper:
                     "       }",
                     "       if (params.edges.length > 0) ",
                     "       {",
-                    "           console.log('Edge clicked:', params.edges, 'clicked at DOM', params.pointer.DOM, 'and canvas',params.pointer.canvas);",
+                    # "           console.log('Edge clicked:', params.edges, 'clicked at DOM', params.pointer.DOM, 'and canvas',params.pointer.canvas);",
                     "           var clickedEdge = network.body.data.edges._data.get(params.edges[0]);",
                     "           addEdgeJointNode(params.pointer.canvas.x, params.pointer.canvas.y,clickedEdge);",
                     "           network.selectEdges([]);",
                     # "       sendCurrentCombinedDataToPython()",
                     "       }",
                     "   });",
+                    # "   network.on('click', function(params) ",
+                    # "   {",
+                    # "       console.log(params);",
+                    # "   });",
                     "   network.on('selectNode', function(params) ",
                     "   {",
                     "       if (params.nodes.length > 0) ",
@@ -690,15 +699,22 @@ class PyVisWrapper:
                     "           else",
                     "               ctrlSelectedNodesList = params.nodes;",
                     "           ",
-                    "           console.log('node clicked:', params);",
+                    # "           console.log('node clicked:', params);",
                     "           nodeSelected = true //just here to make sure the event for edge selection is not triggered",
+                    "       }",
+                    "   });",
+                    "   network.on('showPopup', function(params) ",
+                    "   {",
+                    "       if (noTooltips)",
+                    "       {",
+                    "           return"
                     "       }",
                     "   });",
                     "   network.on('select', function(params) ",
                     "   {",
-                    "       console.log('selection changed clicked:', params.nodes,params.edges);",
+                    # "       console.log('selection changed clicked:', params.nodes,params.edges);",
                     "       currentlyClickedNode = network.getNodeAt(params.pointer.DOM);",
-                    "       console.log('currentlyClickedNode:', currentlyClickedNode);",
+                    # "       console.log('currentlyClickedNode:', currentlyClickedNode);",
                     "       if(currentlyClickedNode)",
                     "       {" ,
                     "           if(lastCtrlSelectedNode != currentlyClickedNode &&",
@@ -732,19 +748,23 @@ class PyVisWrapper:
                     "       if (params.node.includes('edgeJoint'))",
                     "       {",
                     "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 1}, notify_python=false);",
+                    "           currentlyHoveredNode = params.node //used in dragMultiSelect.js",
                     "       }",
+                    "       //don't show tooltip if your pressing ctrl or right-mouse (buttons == 2)",
+                    "       noTooltips = params.event.ctrlKey || params.event.buttons == 2",
                     "   });",
                     "   network.on('blurNode', function(params) ",
                     "   {",
-                    # "       console.log('blurNode:', params);",
-                    "       if (params.node.includes('edgeJoint'))",
+                    "       if (params.node.includes('edgeJoint') && network.body.data.nodes._data.has(params.node))",
                     "       {",
                     "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 0}, notify_python=false);",
+                    "           currentlyHoveredNode = null //used in dragMultiSelect.js",
                     "       }",
+                    "       noTooltips = params.event.ctrlKey || params.event.buttons == 2",
                     "   });",
                     "   network.on('dragEnd', function(params) ",
                     "   {",
-                    "      console.log('dragEnd:', params);",
+                    # "      console.log('dragEnd:', params);",
                     "      if (params.nodes.length > 0)",
                     "      {",
                     "           var draggedNodeId = params.nodes[0]; ",
@@ -761,7 +781,7 @@ class PyVisWrapper:
                     '});',
                     "function addEdgeJointNode(x,y,clickedEdge)",
                     "{",
-                    "   console.log(clickedEdge);",
+                    # "   console.log(clickedEdge);",
                     '   var edgeId = clickedEdge["id"];',
                     # "   var edgeJointNodeNbrPerEdge = network.body.data.nodes.length;",
                     "   var edgeJointNodeNbrPerEdge = 0;",
@@ -772,6 +792,7 @@ class PyVisWrapper:
                     "       relationIdToJointNodes.set(edgeId, []);",
                     '   var newEdgeJointNodeId = "edgeJoint_" + edgeJointNodeNbrPerEdge + "_" + edgeId;',
                     "   relationIdToJointNodes.get(edgeId).push(newEdgeJointNodeId);",
+                    "   edgeJointNodesIdToConnectionDataDict.set(newEdgeJointNodeId, {});",
                     "   applyAddNodesToNetwork([{"
                     "       'x': x,"
                     "       'y': y,"
@@ -780,7 +801,7 @@ class PyVisWrapper:
                     '       "shape": "dot",'
                     '       "size": 10'
                     '   }])',
-                    "   console.log('newEdgeJointNodeId: ' + newEdgeJointNodeId);",
+                    # "   console.log('newEdgeJointNodeId: ' + newEdgeJointNodeId);",
                     "   ",
                     "   addSubEdgesToEdgeJointNode(clickedEdge, newEdgeJointNodeId)",
                     "   ",
@@ -788,7 +809,7 @@ class PyVisWrapper:
                     "}",
                     "function addSubEdgesToEdgeJointNode(clickedEdge,newEdgeJointNodeId)",
                     "{",
-                    "   console.log(clickedEdge);",
+                    # "   console.log(clickedEdge);",
                     '   var edgeId = clickedEdge["id"];',
                     "   var subEdge1Nbr = 0;",
                     # "   var subEdge1Nbr = network.body.data.edges.length;",
@@ -816,14 +837,15 @@ class PyVisWrapper:
                     "   }",
                     # "   var subEdge2Nbr = subEdge1Nbr + 1;",
                     "   ",
-                    '   var newSubEdge1Id = "subEdge_" + subEdge1Nbr + "_" + originalEdgeId;',
-                    '   var newSubEdge2Id = "subEdge_sec_" + subEdge1Nbr + "_" + originalEdgeId;',
+                    "   var newUniqueId = crypto.randomUUID()",
+                    '   var newSubEdge1Id = "subEdge_" + subEdge1Nbr + "_" + newUniqueId;',
+                    '   var newSubEdge2Id = "subEdge_sec_" + subEdge1Nbr + "_" + newUniqueId;',
                     "   relationIdToSubEdges.get(originalEdgeId).push(newSubEdge1Id);",
                     "   relationIdToSubEdges.get(originalEdgeId).push(newSubEdge2Id);",
                     "   relationIdToTotalSubEdgeCount.set(originalEdgeId, relationIdToTotalSubEdgeCount.get(originalEdgeId)+1);",
                     "   SubEdgesToOriginalRelationId.set(newSubEdge1Id, originalEdgeId);",
                     "   SubEdgesToOriginalRelationId.set(newSubEdge2Id,originalEdgeId);",
-                    "   ",
+
                     "   newSubEdge1Data = JSON.parse(JSON.stringify(clickedEdge));",
                     "   newSubEdge2Data = JSON.parse(JSON.stringify(clickedEdge));",
                     "   ",
@@ -834,10 +856,38 @@ class PyVisWrapper:
                     "   newSubEdge2Data.to = newEdgeJointNodeId;",
                     "   newSubEdge2Data.arrows = null;",
                     "   ",
-                    "   console.log('newSubEdge1Data.id: ' + newSubEdge1Data.id);",
-                    "   console.log('newSubEdge2Data.id: ' + newSubEdge2Data.id);",
+                    # "   console.log('newSubEdge1Data.id: ' + newSubEdge1Data.id);",
+                    # "   console.log('newSubEdge2Data.id: ' + newSubEdge2Data.id);",
                     "   applyAddEdgesToNetwork([newSubEdge1Data,newSubEdge2Data])",
                     "   applyRemoveEdgesFromNetwork([edgeId])",
+                    "   ",
+                    "   //save the connections to the new joint node for later removal",
+                    "   var connection_data = { ",
+                    "       'originalEdgeId': originalEdgeId,",
+                    "       'previousEdgeId': edgeId,",
+                    "       'newSubEdge1Id': newSubEdge1Id,",
+                    "       'newSubEdge2Id': newSubEdge2Id,",
+                    "       'newSubEdge1Data.to': newSubEdge1Data.to,",
+                    "       'newSubEdge2Data.from': newSubEdge2Data.from,",
+                    "       }",
+                    "   edgeJointNodesIdToConnectionDataDict.set(newEdgeJointNodeId, connection_data);",
+                    '   //edit supporting data of the to and from nodes so they have the correct',
+                    '   //to and from themselves',
+                    '   updateNeighbouringEdgeJointNode(newSubEdge1Data.to, newSubEdge2Data.from, newEdgeJointNodeId)',
+                    '   updateNeighbouringEdgeJointNode(newSubEdge2Data.from, newSubEdge1Data.to, newEdgeJointNodeId)',
+                    '   updateConnectingEdgeOnNeighbouringEdgeJointNode(newSubEdge1Data.to,edgeId,newSubEdge1Id)',
+                    '   updateConnectingEdgeOnNeighbouringEdgeJointNode(newSubEdge2Data.from,edgeId,newSubEdge2Id)',
+                    # '   console.log("add edge jointnode")',
+                #     'edgeJointNodesIdToConnectionDataDict.forEach((data,key) =>',
+                # '      {',
+                # '         console.log(key +": " + JSON.stringify(data))',
+                # '      })',
+                # '   console.log(" network.body.data.edges:\\n ")',
+                # 'network.body.data.edges._data.forEach((data,key) =>',
+                # '      {',
+                # '         console.log(key +": " + JSON.stringify(data))',
+                # '      })',
+                    "   ",
                     "}",
                     ]
         # the function that communicates changes in the network to the python backend
@@ -850,6 +900,8 @@ class PyVisWrapper:
         add_data.extend(cls.create_applyAddEdgesToNetwork_js_function())
         add_data.extend(cls.create_applyUpdateEdgeInNetwork_js_function())
         add_data.extend(cls.create_applyUpdateNodeInNetwork_js_function())
+        add_data.extend(cls.create_updateNeighbouringEdgeJointNode_js_function())
+        add_data.extend(cls.create_updateConnectingEdgeOnNeighbouringEdgeJointNode_js_function())
         
         cls.replace_and_add_lines(file_data,index_of_function + 4,"","",add_data)
 
@@ -881,11 +933,11 @@ class PyVisWrapper:
         return ['function sendNetworkChangedNotificationToPython()',
                 "{",
                 "   //function that uses the QWebChannel to notify the python application that the network has changed",
-                "   console.log('Network changed through correct interface'); ",
+                # "   console.log('Network changed through correct interface'); ",
                 "   if (window.backend)",
                 "   {",
                 "       window.backend.receive_network_changed_notification();",
-                "       console.log('called window.backend.receive_network_changed_notification()'); ",
+                # "       console.log('called window.backend.receive_network_changed_notification()'); ",
                 "   }"
                 "   else",
                 "   {"
@@ -959,6 +1011,37 @@ class PyVisWrapper:
                 '   if(notify_python)',
                 '       sendNetworkChangedNotificationToPython();',
                 '}']
+
+    @classmethod
+    def create_updateNeighbouringEdgeJointNode_js_function(cls):
+        return ['function updateNeighbouringEdgeJointNode(nodeIdToUpdate, removedNodeId, newNeighbourNodeId)',
+                '{',
+                '       //nodeIdToUpdate needs to be an edgeJointNode',
+                '       if(!(nodeIdToUpdate.includes("edgeJoint") && edgeJointNodesIdToConnectionDataDict.has(nodeIdToUpdate)))',
+                '           return;'
+                '       ',
+                '       nodeToUpdateConnectionData = edgeJointNodesIdToConnectionDataDict.get(nodeIdToUpdate)',
+                '       if(nodeToUpdateConnectionData["newSubEdge1Data.to"] == removedNodeId)',
+                '           nodeToUpdateConnectionData["newSubEdge1Data.to"] = newNeighbourNodeId;',
+                '       else if(nodeToUpdateConnectionData["newSubEdge2Data.from"] = newNeighbourNodeId)',
+                '           nodeToUpdateConnectionData["newSubEdge2Data.from"] = newNeighbourNodeId;',
+                '}']
+
+    @classmethod
+    def create_updateConnectingEdgeOnNeighbouringEdgeJointNode_js_function(cls):
+        return [
+            'function updateConnectingEdgeOnNeighbouringEdgeJointNode(nodeIdToUpdate, removedEdgeId, newEdgeId)',
+            '{',
+            '       //nodeIdToUpdate needs to be an edgeJointNode',
+            '       if(!(nodeIdToUpdate.includes("edgeJoint") && edgeJointNodesIdToConnectionDataDict.has(nodeIdToUpdate)))',
+            '           return;'
+            '       ',
+            '       nodeToUpdateConnectionData = edgeJointNodesIdToConnectionDataDict.get(nodeIdToUpdate)',
+            '       if(nodeToUpdateConnectionData["newSubEdge1Id"] == removedEdgeId)',
+            '           nodeToUpdateConnectionData["newSubEdge1Id"] = newEdgeId;',
+            '       else if(nodeToUpdateConnectionData["newSubEdge2Id"] = removedEdgeId)',
+            '           nodeToUpdateConnectionData["newSubEdge2Id"] = newEdgeId;',
+            '}']
 
     @classmethod
     def modify_edges_in_html(cls, file_data, index_of_edges):
