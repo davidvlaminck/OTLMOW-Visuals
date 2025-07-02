@@ -505,6 +505,20 @@ class PyVisWrapper:
             naam = f'{screen_name[:self.max_screen_name_char_count]}\n<b>{otl_object.__class__.__name__}</b>'
 
             selected_color = self.random_color_if_not_in_dict(otl_object.typeURI)
+            color_settings = {
+                                  "border": "#000000",
+                                  "background":selected_color,
+                                  "highlight":
+                                  {
+                                          "border": "#000000",
+                                          "background": "#25bedd"
+                                  },
+                                  "hover": {
+                                        "border": "#000000",
+                                        "background": selected_color
+                                  }
+                            }
+
 
             tooltip = self.get_tooltip(otl_object)
             size = 20
@@ -523,7 +537,7 @@ class PyVisWrapper:
                        label=naam,
                        shape=shape,
                        size=size,
-                       color=selected_color,
+                       color=color_settings,
                        font={"multi":True})
 
             g.get_node(node_id)['title'] = tooltip
@@ -807,10 +821,25 @@ class PyVisWrapper:
                     '   var newEdgeJointNodeId = "edgeJoint_" + edgeJointNodeNbrPerEdge + "_" + edgeId;',
                     "   relationIdToJointNodes.get(edgeId).push(newEdgeJointNodeId);",
                     "   edgeJointNodesIdToConnectionDataDict.set(newEdgeJointNodeId, {});",
+                    '   var selected_color = "#" + clickedEdge["color"]',
+                    "   var color_settings = {",
+                    '              "border": "#000000",',
+                    '              "background":selected_color,',
+                    '              "highlight":',
+                    '              {',
+                    '                      "border": "#000000",',
+                    '                      "background": "#25bedd"',
+                    '              },',
+                    '              "hover": {',
+                    '                    "border": "#000000",',
+                    '                    "background": selected_color',
+                    '              }',
+                    '        }',
+                    " ",
                     "   applyAddNodesToNetwork([{"
                     "       'x': x,"
                     "       'y': y,"
-                    '       "color": "#" + clickedEdge["color"],'
+                    '       "color": color_settings,'
                     '       "id": newEdgeJointNodeId,'
                     '       "shape": "dot",'
                     '       "size": 10'
@@ -1086,6 +1115,20 @@ class PyVisWrapper:
 
         selected_color = "#CCCCCC"
 
+        color_settings = {
+            "border": "#000000",
+            "background": selected_color,
+            "highlight":
+                {
+                    "border": "#000000",
+                    "background": "#25bedd"
+                },
+            "hover": {
+                "border": "#000000",
+                "background": selected_color
+            }
+        }
+
 
         size = 20
         shape = 'database'  # 'diamond'
@@ -1095,7 +1138,7 @@ class PyVisWrapper:
                    label=naam,
                    shape=shape,
                    size=size,
-                   color=selected_color,
+                   color=color_settings,
                    font={"multi":True})
         g.get_node(node_id)['title'] = tooltip
 
