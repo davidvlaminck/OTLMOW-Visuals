@@ -28,6 +28,7 @@ class PyVisWrapper:
         self.asset_id_to_display_name_dict = {}
         self.relation_id_to_subedges = defaultdict(list)
         self.relation_id_to_joint_nodes = defaultdict(list)
+        self.collection_relation_count_threshold = 10
 
         if notebook_mode:
             warnings.warn("set the nodebook mode using the show method")
@@ -205,8 +206,13 @@ class PyVisWrapper:
         self.special_nodes = []
         self.special_edges = []
         # remove relations to asset that have to many relation create a new node with one relation
-        self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset_doel)
-        self.create_special_nodes_and_relations(g, assets, relations, relations_per_asset_bron,use_bron=False)
+        self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
+                                                relations_per_asset=relations_per_asset_doel,
+                                                visualisation_option=visualisation_option)
+        self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
+                                                relations_per_asset=relations_per_asset_bron,
+                                                visualisation_option=visualisation_option,
+                                                use_bron=False)
 
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
 
@@ -404,7 +410,7 @@ class PyVisWrapper:
         return naam
 
     def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset,
-                                           use_bron=True):
+                                           use_bron=True, visualisation_option:int = 1):
         assets_with_to_many = []
         assets_count = len(assets)
 
@@ -421,8 +427,16 @@ class PyVisWrapper:
             if asset_id in single_level_dict.keys():
                 # for relations_per_asset in single_level_dict[asset_id]:
                 relation_lists_per_asset = single_level_dict[asset_id]
+
+                
                 for relations_per_asset in relation_lists_per_asset:
-                    if len(relations_per_asset) > assets_count * 0.5:
+                
+                    if visualisation_option == 4:
+                        needs_collection = len(relations_per_asset) > assets_count * 0.5
+                    else:
+                        needs_collection = len(relations_per_asset) > self.collection_relation_count_threshold
+                    
+                    if needs_collection:
                         assets_with_to_many.append(asset)
                         # remove the relations from the original list
                         for relation in relations_per_asset:
