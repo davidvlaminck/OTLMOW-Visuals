@@ -4,6 +4,7 @@ import re
 import warnings
 import webbrowser
 from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 from random import choice
 from typing import Optional
@@ -29,6 +30,10 @@ class PyVisWrapper:
         self.relation_id_to_subedges = defaultdict(list)
         self.relation_id_to_joint_nodes = defaultdict(list)
         self.collection_relation_count_threshold = 10
+        # relations removed from initial data because they are put into a collection
+        # but added again after stabilizing
+        # are only visible when you hover over the collection
+        self.collection_relations_id_to_relation_data: dict[str,str] ={}
 
         if notebook_mode:
             warnings.warn("set the nodebook mode using the show method")
@@ -207,10 +212,10 @@ class PyVisWrapper:
         self.special_edges = []
         # remove relations to asset that have to many relation create a new node with one relation
         self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
-                                                relations_per_asset=relations_per_asset_doel,
+                                                initial_relations_per_asset=relations_per_asset_doel,
                                                 visualisation_option=visualisation_option)
         self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
-                                                relations_per_asset=relations_per_asset_bron,
+                                                initial_relations_per_asset=relations_per_asset_bron,
                                                 visualisation_option=visualisation_option,
                                                 use_bron=False)
 
@@ -409,13 +414,13 @@ class PyVisWrapper:
 
         return naam
 
-    def create_special_nodes_and_relations(self, g, assets, relations, relations_per_asset,
+    def create_special_nodes_and_relations(self, g, assets, relations, initial_relations_per_asset,
                                            use_bron=True, visualisation_option:int = 1):
         assets_with_to_many = []
         assets_count = len(assets)
 
         single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(
-            relations_per_asset)
+            initial_relations_per_asset)
 
         self.asset_id_to_display_name_dict = {
             self.get_corrected_identificator(asset): self.get_screen_name(asset) for asset in
@@ -434,15 +439,13 @@ class PyVisWrapper:
                     if visualisation_option == 4:
                         needs_collection = len(relations_per_asset) > assets_count * 0.5
                     else:
-                        needs_collection = len(relations_per_asset) > self.collection_relation_count_threshold
+                        needs_collection = len(relations_per_asset) >= self.collection_relation_count_threshold
                     
                     if needs_collection:
                         assets_with_to_many.append(asset)
-                        # remove the relations from the original list
-                        for relation in relations_per_asset:
-                            relations.remove(relation)
 
-                        relatie = relations_per_asset[0]
+
+                        relatie = deepcopy(relations_per_asset[0])
                         new_node_id = f"special_node_{len(self.special_nodes)}"
 
                         if use_bron:
@@ -456,7 +459,16 @@ class PyVisWrapper:
                             self.create_special_node(g, new_node_id=new_node_id,
                                                      list_of_ids=list_of_ids)
                             relatie.bronAssetId.identificator = new_node_id
-                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}"
+                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+
+                            # remove the relations from the original list
+                            for relation in relations_per_asset:
+                                relation_copy = deepcopy(relation)
+                                relations.remove(relation)
+                                relation_copy.doelAssetId.identificator = new_node_id
+                                self.collection_relations_id_to_relation_data[relation.assetId.identificator] = relation_copy
+
+
                         else:
                             list_of_ids = []
                             for rel in relations_per_asset:
@@ -470,13 +482,15 @@ class PyVisWrapper:
                             self.create_special_node(g, new_node_id=new_node_id,
                                                      list_of_ids=list_of_ids)
                             relatie.doelAssetId.identificator = new_node_id
-                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}"
+                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+
                         self.special_nodes.append(g.get_node(new_node_id))
 
                         asset_ids = (asset_id, new_node_id)
                         self.create_relation_edge(asset_ids, g, relatie)
                         self.special_edges.extend([edge for edge in g.get_edges() if
                                                    edge["id"] == relatie.assetId.identificator])
+
 
     def recursive_unpack_nested_dict_to_single_level_dict(self, nested_dicts:dict, single_level_dict =None):
         if not single_level_dict:
@@ -555,12 +569,17 @@ class PyVisWrapper:
 
     def create_edges(self, g, list_of_objects: [OTLObject], nodes) -> None:
         asset_ids = list(self.get_all_ids_from_objects(nodes))
+        asset_ids.extend(self.collection_id_to_list_of_relation_ids.keys())
         relaties = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         for relatie in relaties:
             self.create_relation_edge(asset_ids, g, relatie)
 
-    def create_relation_edge(self, asset_ids, g, relatie):
+        for collection_relatie in self.collection_relations_id_to_relation_data.values():
+            self.create_relation_edge(asset_ids, g, collection_relatie,physics=False,hidden=True)
+    
+       
+    def create_relation_edge(self, asset_ids, g, relatie,physics=True,hidden=False):
         if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
             # only display relations between assets that are displayed
             if is_directional_relation(relatie):
@@ -572,20 +591,21 @@ class PyVisWrapper:
                                to=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
                                width=2, arrowStrikethrough=False, label=relatie.rol,
-                               smooth={"enabled": False})
+                               smooth={"enabled": False},physics=physics,hidden=hidden)
                 else:
                     g.add_edge(id=relatie.assetId.identificator,
                                source=relatie.bronAssetId.identificator,
                                to=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
-                               width=2, arrowStrikethrough=False, smooth={"enabled": False})
+                               width=2, arrowStrikethrough=False, smooth={"enabled": False},
+                               physics=physics,hidden=hidden)
             else:
                 g.add_edge(id=relatie.assetId.identificator,
                            to=relatie.bronAssetId.identificator,
                            source=relatie.doelAssetId.identificator,
                            color=self.map_relation_to_color(relatie),
                            width=2, arrowStrikethrough=False, label='remove_arrow',
-                           smooth={"enabled": False})
+                           smooth={"enabled": False},physics=physics,hidden=hidden)
 
     def map_relation_to_color(self, relatie: OTLObject) -> str:
         return self.relatie_color_dict.get(relatie.typeURI, 'brown')
@@ -611,8 +631,8 @@ class PyVisWrapper:
                 replace('\n', '<br/>').replace(' ', '&nbsp;'))
         return f'<htmlTitle>("<div style="font-family: monospace;">{html}</div>")<htmlTitleEnd>'
 
-    @classmethod
-    def modify_html(cls, file_path: Path, notebook: bool = False) -> None:
+    
+    def modify_html(self, file_path: Path, notebook: bool = False) -> None:
         with open(file_path) as file:
             file_data = file.readlines()
 
@@ -642,7 +662,7 @@ class PyVisWrapper:
                 replace('\\\")\\u003chtmlTitleEnd\\u003e"', '")').replace('\\u003c', '<').replace('\\u003e', '>')
         file_data.insert(index_of_nodes, nodes_line)
 
-        cls.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
+        self.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
         #insert handler that activates when DOMcontent is loaded
         file_data.insert(index_of_function - 5,
                          'document.addEventListener("DOMContentLoaded", (event) => {\n')
@@ -677,6 +697,7 @@ class PyVisWrapper:
                     'var lastCtrlSelectedNode = null;',
                     'var currentlyHoveredNode = null;',
                     'var noTooltips = false;',
+                    f'var collection_id_to_list_of_relation_ids = {json.dumps(self.collection_id_to_list_of_relation_ids)};',
                     'document.addEventListener("DOMContentLoaded", (event) => ',
                     '{',
                     # '   network.on("beforeDrawing",  function(ctx) ',
@@ -772,7 +793,19 @@ class PyVisWrapper:
                     "   });",
                     "   network.on('hoverNode', function(params) ",
                     "   {",
-                    # "       console.log('hoverNode:', params);",
+                    "       if (params.node.includes('special_node') && (params.node in collection_id_to_list_of_relation_ids))",
+                    "       {",
+                    '           // hide all relations in de collection when not hovering on collection',
+                    '          var relations_in_collection_list = collection_id_to_list_of_relation_ids[params.node]',
+                    '          var updateData = []',
+                    '          for (const index in relations_in_collection_list) ',
+                    '           {',
+                    '               var relation_id = relations_in_collection_list[index][0]',
+                    '               console.log(relation_id)',
+                    "               updateData.push({'id': relation_id, 'hidden': false})",
+                    '           }',
+                    "           applyUpdateEdgeInNetwork(updateData, notify_python=false);",
+                    "       }",
                     "       if (params.node.includes('edgeJoint'))",
                     "       {",
                     "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 1}, notify_python=false);",
@@ -783,6 +816,20 @@ class PyVisWrapper:
                     "   });",
                     "   network.on('blurNode', function(params) ",
                     "   {",
+                    "       "
+                    "       if (params.node.includes('special_node') && (params.node in collection_id_to_list_of_relation_ids))",
+                    "       {",
+                    '           // hide all relations in de collection when not hovering on collection',
+                    '          var relations_in_collection_list = collection_id_to_list_of_relation_ids[params.node]',
+                    '          var updateData = []',
+                    '          for (const index in relations_in_collection_list) ' ,
+                    '           {',
+                    '               var relation_id = relations_in_collection_list[index][0]',
+                    '               console.log(relation_id)',
+                    "               updateData.push({'id': relation_id, 'hidden': true})",
+                    '           }',
+                    "           applyUpdateEdgeInNetwork(updateData, notify_python=false);",
+                    "       }",
                     "       if (params.node.includes('edgeJoint') && network.body.data.nodes._data.has(params.node))",
                     "       {",
                     "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 0}, notify_python=false);",
@@ -934,19 +981,19 @@ class PyVisWrapper:
                     "}",
                     ]
         # the function that communicates changes in the network to the python backend
-        add_data.extend(cls.create_sendNetworkChangedNotificationToPython_js_function())
+        add_data.extend(self.create_sendNetworkChangedNotificationToPython_js_function())
         # interfaces that are intended as the only ones allowed to edit the network data
         # Because they will always notify the python backend of the change (see js function above)
-        add_data.extend(cls.create_applyRemoveEdgesFromNetwork_js_function())
-        add_data.extend(cls.create_applyRemoveNodesFromNetwork_js_function())
-        add_data.extend(cls.create_applyAddNodesToNetwork_js_function())
-        add_data.extend(cls.create_applyAddEdgesToNetwork_js_function())
-        add_data.extend(cls.create_applyUpdateEdgeInNetwork_js_function())
-        add_data.extend(cls.create_applyUpdateNodeInNetwork_js_function())
-        add_data.extend(cls.create_updateNeighbouringEdgeJointNode_js_function())
-        add_data.extend(cls.create_updateConnectingEdgeOnNeighbouringEdgeJointNode_js_function())
+        add_data.extend(self.create_applyRemoveEdgesFromNetwork_js_function())
+        add_data.extend(self.create_applyRemoveNodesFromNetwork_js_function())
+        add_data.extend(self.create_applyAddNodesToNetwork_js_function())
+        add_data.extend(self.create_applyAddEdgesToNetwork_js_function())
+        add_data.extend(self.create_applyUpdateEdgeInNetwork_js_function())
+        add_data.extend(self.create_applyUpdateNodeInNetwork_js_function())
+        add_data.extend(self.create_updateNeighbouringEdgeJointNode_js_function())
+        add_data.extend(self.create_updateConnectingEdgeOnNeighbouringEdgeJointNode_js_function())
         
-        cls.replace_and_add_lines(file_data,index_of_function + 4,"","",add_data)
+        self.replace_and_add_lines(file_data,index_of_function + 4,"","",add_data)
 
 
         if index_of_screen_height != -1:
@@ -1049,6 +1096,7 @@ class PyVisWrapper:
         return ['function applyUpdateNodeInNetwork(changedNodeData, notify_python=true)',
                 '{',
                 '   //This is the only function that should call the following function',
+                '   //https://stackoverflow.com/questions/32765015/vis-js-modify-node-properties-on-click',
                 '   network.body.data.nodes.updateOnly(changedNodeData);',
                 '   ',
                 '   if(notify_python)',
