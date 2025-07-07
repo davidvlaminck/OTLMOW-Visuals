@@ -282,7 +282,7 @@ class PyVisWrapper:
                       '}, '
                       '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
                       '"physics":'
-                      ' {'
+                      '{'
                       '"barnesHut": '
                       '{'
                       '       "theta": 0.1, '
@@ -299,8 +299,15 @@ class PyVisWrapper:
                       '},'
                       '"layout" : {'
                       '"clusterThreshold": 150'
-                      ' }'
-                    '}')
+                      ' },'
+                      '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'         
+
+                      '}')
 
         # shell setting
         options_3_shell = ('options = {'
@@ -324,6 +331,86 @@ class PyVisWrapper:
                               ' "enabled": false'
                               '}' 
                         '}')
+
+        options_4_hierarch_repulsion = ('options = {'
+                               '"nodes": '
+                               '{'
+                               '      "font":'
+                               '      {'
+                               '           "size": 25,'
+                               '           "color":"#000000" '
+                               '       },'
+                               '       "margin": 10,'
+                               '       "widthConstraint":'
+                               '       {   '
+                               '           "minimum": 150,'
+                               '           "maximum": 250'
+                               '       }   '
+                               '}, '
+                               '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
+                               ' "physics": {'
+                               '     "hierarchicalRepulsion": {'
+                               '     "centralGravity": 9.45,'
+                               '     "springLength": 60,'
+                               '     "springConstant": 0.16,'
+                               '     "nodeDistance": 155,'
+                               '     "avoidOverlap": 1'
+                               '  },'
+                               '"minVelocity": 0.75,'
+                               '"solver": "hierarchicalRepulsion"'
+                               '},'
+                               '"layout" : {'
+                               '"clusterThreshold": 150'
+                               ' },'
+                               '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'
+
+                               '}')
+
+        options_5_forceAtlas2Based = ('options = {'
+                                     '"nodes": '
+                                     '{'
+                                     '      "font":'
+                                     '      {'
+                                     '           "size": 25,'
+                                     '           "color":"#000000" '
+                                     '       },'
+                                     '       "margin": 10,'
+                                     '       "widthConstraint":'
+                                     '       {   '
+                                     '           "minimum": 150,'
+                                     '           "maximum": 250'
+                                     '       }   '
+                                     '}, '
+                                     '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
+                                     '"physics": {'
+                                     '   "forceAtlas2Based": {'
+                                     '   "theta": 1,'
+                                     '   "gravitationalConstant": -429,'
+                                     '   "centralGravity": 0.055,'
+                                     '   "springLength": 205,'
+                                     '   "springConstant": 0.56,'
+                                     '   "damping": 0.53,'
+                                     '   "avoidOverlap": 0.46'
+                                     '   },'
+                                     '"minVelocity": 0.75,'
+                                     '"solver": "forceAtlas2Based"'
+                                     '},'
+                                     '"layout" : {'
+                                     '"clusterThreshold": 150'
+                                     ' },'
+                                   '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'
+
+                                     '}')
 
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
         if visualisation_option == 2:
@@ -352,6 +439,13 @@ class PyVisWrapper:
                 if node:
                     node["x"] = node_pos[0]*scale
                     node["y"] = node_pos[1]*scale
+        elif visualisation_option == 4:
+            print(options_4_hierarch_repulsion)
+            g.set_options(options_4_hierarch_repulsion)
+        elif visualisation_option == 5:
+            print(options_5_forceAtlas2Based)
+            g.set_options(options_5_forceAtlas2Based)
+            
         else:
             print(options_1_hierarchisch)
             g.set_options(options_1_hierarchisch)
@@ -436,10 +530,7 @@ class PyVisWrapper:
                 
                 for relations_per_asset in relation_lists_per_asset:
                 
-                    if visualisation_option == 4:
-                        needs_collection = len(relations_per_asset) > assets_count * 0.5
-                    else:
-                        needs_collection = len(relations_per_asset) >= self.collection_relation_count_threshold
+                    needs_collection = len(relations_per_asset) >= self.collection_relation_count_threshold
                     
                     if needs_collection:
                         assets_with_to_many.append(asset)
