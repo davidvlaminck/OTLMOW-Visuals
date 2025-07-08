@@ -198,11 +198,18 @@ class PyVisWrapper:
         relations = []
         relations_per_asset_doel = defaultdict(list)
         relations_per_asset_bron = defaultdict(list)
+        relations_per_asset_undirected = defaultdict(list)
         for o in list_of_objects:
             if is_relation(o):
                 relations.append(o)
-                self.add_object_to_ordering(o, relations_per_asset_doel,o.doelAssetId.identificator)
-                self.add_object_to_ordering(o, relations_per_asset_bron,o.bronAssetId.identificator)
+                if is_directional_relation(o):
+                    self.add_object_to_ordering(o, relations_per_asset_doel,o.doelAssetId.identificator)
+                    self.add_object_to_ordering(o, relations_per_asset_bron,o.bronAssetId.identificator)
+                else:
+                    self.add_object_to_ordering(o, relations_per_asset_undirected,
+                                                o.doelAssetId.identificator)
+                    self.add_object_to_ordering(o, relations_per_asset_undirected,
+                                                o.bronAssetId.identificator)
             else:
                 assets.append(o)
 
@@ -213,11 +220,14 @@ class PyVisWrapper:
         # remove relations to asset that have to many relation create a new node with one relation
         self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
                                                 initial_relations_per_asset=relations_per_asset_doel,
-                                                visualisation_option=visualisation_option)
+                                                directed =True)
         self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
                                                 initial_relations_per_asset=relations_per_asset_bron,
-                                                visualisation_option=visualisation_option,
-                                                use_bron=False)
+                                                directed =True,use_bron=False)
+
+        self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
+                                                initial_relations_per_asset=relations_per_asset_undirected,
+                                                directed=False, use_bron=False)
 
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
 
@@ -238,16 +248,18 @@ class PyVisWrapper:
                       '       }   '
                       '}, '
                       '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
-                      ' "layout": {'
-                      '"hierarchical": {'
-                      '"enabled": true,'
-                      '"levelSeparation": 290,'
-                      '"nodeSpacing": 467,'
-                      '"treeSpacing": 492,'
-                      '"edgeMinimization": false,'
-                      '"parentCentralization": false,'
-                      '"direction": "LR"'
-                      '}'
+                      ' "layout": '
+                      '{'
+                      '     "hierarchical": '
+                      '     {'
+                      '         "enabled": true,'
+                      '         "levelSeparation": 290,'
+                      '         "nodeSpacing": 467,'
+                      '         "treeSpacing": 492,'
+                      '         "edgeMinimization": false,'
+                      '         "parentCentralization": false,'
+                      '     "   direction": "LR"'
+                      '     }'
                       '},'
                       '"physics": '
                       '{'
@@ -260,7 +272,13 @@ class PyVisWrapper:
                       '         "avoidOverlap": 1'
                       '     },'
                       '"minVelocity": 0.75,'
-                      '"solver": "hierarchicalRepulsion"'
+                      '"solver": "hierarchicalRepulsion",'
+                        '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'         
                       '}'
                 '}')
 
@@ -509,7 +527,7 @@ class PyVisWrapper:
         return naam
 
     def create_special_nodes_and_relations(self, g, assets, relations, initial_relations_per_asset,
-                                           use_bron=True, visualisation_option:int = 1):
+                                           use_bron:bool=True, directed:bool=True):
         assets_with_to_many = []
         assets_count = len(assets)
 
@@ -538,42 +556,89 @@ class PyVisWrapper:
 
                         relatie = deepcopy(relations_per_asset[0])
                         new_node_id = f"special_node_{len(self.special_nodes)}"
+                        if directed:
+                            if use_bron:
+                                list_of_ids = []
+                                for rel in relations_per_asset:
+                                    display_name =  self.asset_id_to_display_name_dict[rel.bronAssetId.identificator]
+                                    list_of_ids.append(display_name)
+                                    self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
+                                    self.collection_id_to_list_of_relation_ids[new_node_id].append((rel.assetId.identificator,display_name))
 
-                        if use_bron:
+                                self.create_special_node(g, new_node_id=new_node_id,
+                                                         list_of_ids=list_of_ids)
+                                relatie.bronAssetId.identificator = new_node_id
+                                relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+
+                                # remove the relations from the original list
+                                for relation in relations_per_asset:
+                                    relation_copy = deepcopy(relation)
+                                    relations.remove(relation)
+                                    relation_copy.doelAssetId.identificator = new_node_id
+                                    self.collection_relations_id_to_relation_data[relation.assetId.identificator] = relation_copy
+
+
+                            else:
+                                list_of_ids = []
+                                for rel in relations_per_asset:
+                                    display_name = self.asset_id_to_display_name_dict[
+                                        rel.doelAssetId.identificator]
+                                    list_of_ids.append(display_name)
+                                    self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
+                                    self.collection_id_to_list_of_relation_ids[new_node_id].append(
+                                        (rel.assetId.identificator, display_name))
+
+                                self.create_special_node(g, new_node_id=new_node_id,
+                                                         list_of_ids=list_of_ids)
+                                relatie.doelAssetId.identificator = new_node_id
+                                relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+
+                                # remove the relations from the original list
+                                for relation in relations_per_asset:
+                                    relation_copy = deepcopy(relation)
+                                    relations.remove(relation)
+                                    relation_copy.bronAssetId.identificator = new_node_id
+                                    self.collection_relations_id_to_relation_data[
+                                        relation.assetId.identificator] = relation_copy
+                        else:
+                            # for undirected relation detects the bronAssetId or doelAssetId itself
                             list_of_ids = []
+
                             for rel in relations_per_asset:
-                                display_name =  self.asset_id_to_display_name_dict[rel.bronAssetId.identificator]
+                                if rel.doelAssetId.identificator == asset_id:
+                                    display_name = self.asset_id_to_display_name_dict[
+                                        rel.bronAssetId.identificator]
+                                elif rel.bronAssetId.identificator == asset_id:
+                                    display_name = self.asset_id_to_display_name_dict[
+                                        rel.bronAssetId.identificator]
                                 list_of_ids.append(display_name)
-                                self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
-                                self.collection_id_to_list_of_relation_ids[new_node_id].append((rel.assetId.identificator,display_name))
+                                self.relation_id_to_collection_id[
+                                    rel.assetId.identificator] = new_node_id
+                                self.collection_id_to_list_of_relation_ids[new_node_id].append(
+                                    (rel.assetId.identificator, display_name))
 
                             self.create_special_node(g, new_node_id=new_node_id,
                                                      list_of_ids=list_of_ids)
-                            relatie.bronAssetId.identificator = new_node_id
+                            if relatie.doelAssetId.identificator == asset_id:
+                                relatie.bronAssetId.identificator = new_node_id
+                            elif relatie.bronAssetId.identificator == asset_id:
+                                relatie.doelAssetId.identificator = new_node_id
+                            
+                            
                             relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
 
                             # remove the relations from the original list
                             for relation in relations_per_asset:
                                 relation_copy = deepcopy(relation)
                                 relations.remove(relation)
-                                relation_copy.doelAssetId.identificator = new_node_id
-                                self.collection_relations_id_to_relation_data[relation.assetId.identificator] = relation_copy
-
-
-                        else:
-                            list_of_ids = []
-                            for rel in relations_per_asset:
-                                display_name = self.asset_id_to_display_name_dict[
-                                    rel.doelAssetId.identificator]
-                                list_of_ids.append(display_name)
-                                self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
-                                self.collection_id_to_list_of_relation_ids[new_node_id].append(
-                                    (rel.assetId.identificator, display_name))
-
-                            self.create_special_node(g, new_node_id=new_node_id,
-                                                     list_of_ids=list_of_ids)
-                            relatie.doelAssetId.identificator = new_node_id
-                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+                                
+                                if relation_copy.doelAssetId.identificator == asset_id:
+                                    relation_copy.doelAssetId.identificator = new_node_id
+                                elif relation_copy.bronAssetId.identificator == asset_id:
+                                    relation_copy.bronAssetId.identificator = new_node_id
+                                
+                                self.collection_relations_id_to_relation_data[
+                                    relation.assetId.identificator] = relation_copy
 
                         self.special_nodes.append(g.get_node(new_node_id))
 
