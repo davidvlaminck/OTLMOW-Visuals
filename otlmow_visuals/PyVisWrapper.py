@@ -24,7 +24,7 @@ class PyVisWrapper:
     def __init__(self, notebook_mode: bool = False):
         self.special_nodes = []
         self.special_edges = []
-        self.relation_id_to_collection_id: dict[str,str] ={}
+        self.relation_id_to_collection_id: dict[str,list] = defaultdict(list)
         self.collection_id_to_list_of_relation_ids:dict[str,list[str]] = defaultdict(list)
         self.asset_id_to_display_name_dict = {}
         self.relation_id_to_subedges = defaultdict(list)
@@ -189,7 +189,12 @@ class PyVisWrapper:
         return list(unique.values())
 
     def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), visualisation_option:int = 1, launch_html: bool = True,
-             notebook_mode: bool = False, **kwargs) -> None:
+             notebook_mode: bool = False,collection_threshold=-1, **kwargs) -> None:
+
+        if collection_threshold == -1:
+            collection_threshold = self.collection_relation_count_threshold
+
+
         if notebook_mode and kwargs.get('cdn_resources') != 'in_line':
             kwargs['cdn_resources'] = 'in_line'
         g = pyvis_network.Network(directed=True, notebook=notebook_mode, **kwargs)
@@ -220,14 +225,17 @@ class PyVisWrapper:
         # remove relations to asset that have to many relation create a new node with one relation
         self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
                                                 initial_relations_per_asset=relations_per_asset_doel,
-                                                directed =True)
+                                                directed =True,
+                                                collection_threshold=collection_threshold)
         self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
                                                 initial_relations_per_asset=relations_per_asset_bron,
-                                                directed =True,use_bron=False)
+                                                directed =True,use_bron=False,
+                                                collection_threshold=collection_threshold)
 
         self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
                                                 initial_relations_per_asset=relations_per_asset_undirected,
-                                                directed=False, use_bron=False)
+                                                directed=False, use_bron=False,
+                                                collection_threshold=collection_threshold)
 
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
 
@@ -527,7 +535,7 @@ class PyVisWrapper:
         return naam
 
     def create_special_nodes_and_relations(self, g, assets, relations, initial_relations_per_asset,
-                                           use_bron:bool=True, directed:bool=True):
+                                           use_bron:bool=True, directed:bool=True,collection_threshold=10):
         assets_with_to_many = []
         assets_count = len(assets)
 
@@ -548,21 +556,21 @@ class PyVisWrapper:
                 
                 for relations_per_asset in relation_lists_per_asset:
                 
-                    needs_collection = len(relations_per_asset) >= self.collection_relation_count_threshold
+                    needs_collection = len(relations_per_asset) >= collection_threshold
                     
                     if needs_collection:
                         assets_with_to_many.append(asset)
 
 
                         relatie = deepcopy(relations_per_asset[0])
-                        new_node_id = f"special_node_{len(self.special_nodes)}"
+                        new_node_id = f"special_node_{len(self.special_nodes)}_{self.asset_id_to_display_name_dict[asset_id]}"
                         if directed:
                             if use_bron:
                                 list_of_ids = []
                                 for rel in relations_per_asset:
                                     display_name =  self.asset_id_to_display_name_dict[rel.bronAssetId.identificator]
                                     list_of_ids.append(display_name)
-                                    self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
+                                    self.relation_id_to_collection_id[rel.assetId.identificator].append(new_node_id)
                                     self.collection_id_to_list_of_relation_ids[new_node_id].append((rel.assetId.identificator,display_name))
 
                                 self.create_special_node(g, new_node_id=new_node_id,
@@ -573,7 +581,13 @@ class PyVisWrapper:
                                 # remove the relations from the original list
                                 for relation in relations_per_asset:
                                     relation_copy = deepcopy(relation)
-                                    relations.remove(relation)
+                                    if relation in relations:
+                                        relation_copy = deepcopy(relation)
+                                        relations.remove(relation)
+                                    else:
+                                        relation_copy = \
+                                        self.collection_relations_id_to_relation_data[
+                                            relation.assetId.identificator]
                                     relation_copy.doelAssetId.identificator = new_node_id
                                     self.collection_relations_id_to_relation_data[relation.assetId.identificator] = relation_copy
 
@@ -584,7 +598,7 @@ class PyVisWrapper:
                                     display_name = self.asset_id_to_display_name_dict[
                                         rel.doelAssetId.identificator]
                                     list_of_ids.append(display_name)
-                                    self.relation_id_to_collection_id[rel.assetId.identificator] = new_node_id
+                                    self.relation_id_to_collection_id[rel.assetId.identificator].append(new_node_id)
                                     self.collection_id_to_list_of_relation_ids[new_node_id].append(
                                         (rel.assetId.identificator, display_name))
 
@@ -595,8 +609,14 @@ class PyVisWrapper:
 
                                 # remove the relations from the original list
                                 for relation in relations_per_asset:
-                                    relation_copy = deepcopy(relation)
-                                    relations.remove(relation)
+                                    
+                                    if relation in relations:
+                                        relation_copy = deepcopy(relation)
+                                        relations.remove(relation)
+                                    else:
+                                        relation_copy = self.collection_relations_id_to_relation_data[
+                                            relation.assetId.identificator]
+                                 
                                     relation_copy.bronAssetId.identificator = new_node_id
                                     self.collection_relations_id_to_relation_data[
                                         relation.assetId.identificator] = relation_copy
@@ -610,10 +630,11 @@ class PyVisWrapper:
                                         rel.bronAssetId.identificator]
                                 elif rel.bronAssetId.identificator == asset_id:
                                     display_name = self.asset_id_to_display_name_dict[
-                                        rel.bronAssetId.identificator]
+                                        rel.doelAssetId.identificator]
                                 list_of_ids.append(display_name)
+
                                 self.relation_id_to_collection_id[
-                                    rel.assetId.identificator] = new_node_id
+                                    rel.assetId.identificator].append(new_node_id)
                                 self.collection_id_to_list_of_relation_ids[new_node_id].append(
                                     (rel.assetId.identificator, display_name))
 
@@ -630,8 +651,13 @@ class PyVisWrapper:
                             # remove the relations from the original list
                             for relation in relations_per_asset:
                                 relation_copy = deepcopy(relation)
-                                relations.remove(relation)
-                                
+                                if relation in relations:
+                                    relations.remove(relation)
+                                else:
+                                    relation_copy =  self.collection_relations_id_to_relation_data[
+                                    relation.assetId.identificator]
+
+
                                 if relation_copy.doelAssetId.identificator == asset_id:
                                     relation_copy.doelAssetId.identificator = new_node_id
                                 elif relation_copy.bronAssetId.identificator == asset_id:
