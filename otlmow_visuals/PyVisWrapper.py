@@ -668,6 +668,9 @@ class PyVisWrapper:
 
                         self.special_nodes.append(g.get_node(new_node_id))
 
+                        # link the id of the special collection node to the display name of the asset it represents
+                        self.asset_id_to_display_name_dict[new_node_id] =  self.asset_id_to_display_name_dict[asset_id]
+
                         asset_ids = (asset_id, new_node_id)
                         self.create_relation_edge(asset_ids, g, relatie)
                         self.special_edges.extend([edge for edge in g.get_edges() if
