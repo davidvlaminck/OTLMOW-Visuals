@@ -1,26 +1,40 @@
+import base64
 import json
+import re
 import warnings
 import webbrowser
+from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 from random import choice
+from typing import Optional
+
 
 from otlmow_model.OtlmowModel.BaseClasses.OTLObject import OTLObject
+from otlmow_model.OtlmowModel.BaseClasses.RelationInteractor import RelationInteractor
+from otlmow_model.OtlmowModel.Classes.Agent import Agent
+from otlmow_model.OtlmowModel.Classes.ImplementatieElement.AIMObject import AIMObject
+from otlmow_model.OtlmowModel.Helpers import OTLObjectHelper
 from otlmow_model.OtlmowModel.Helpers.OTLObjectHelper import is_relation, is_directional_relation
-from pyvis import network as networkx
-
-
-def remove_duplicates_in_iterable_based_on_asset_id(list_of_objects: [OTLObject]) -> [OTLObject]:
-    unique = {}
-    for elem in list_of_objects:
-        if elem.typeURI == 'http://purl.org/dc/terms/Agent':
-            unique.setdefault(elem.agentId.identificator, elem)
-        else:
-            unique.setdefault(elem.assetId.identificator, elem)
-    return list(unique.values())
-
+from pyvis import network as pyvis_network
+import networkx as nx
 
 class PyVisWrapper:
+    max_screen_name_char_count = 17
     def __init__(self, notebook_mode: bool = False):
+        self.special_nodes = []
+        self.special_edges = []
+        self.relation_id_to_collection_id: dict[str,list] = defaultdict(list)
+        self.collection_id_to_list_of_relation_ids:dict[str,list[str]] = defaultdict(list)
+        self.asset_id_to_display_name_dict = {}
+        self.relation_id_to_subedges = defaultdict(list)
+        self.relation_id_to_joint_nodes = defaultdict(list)
+        self.collection_relation_count_threshold = 10
+        # relations removed from initial data because they are put into a collection
+        # but added again after stabilizing
+        # are only visible when you hover over the collection
+        self.collection_relations_id_to_relation_data: dict[str,str] ={}
+
         if notebook_mode:
             warnings.warn("set the nodebook mode using the show method")
         self.notebook_mode = notebook_mode
@@ -47,6 +61,8 @@ class PyVisWrapper:
             'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftToegangsprocedure': 'a52a2a',
             'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBijlage': '0000ff',
         }
+        self.awv_color_list = ("#7F4C32","#6A3D9A","#FF7F00","#33A02C","#1F78B4","#E31A1C",
+                               "#B8B327","#CAB2D6","#FDBF6F","#B2DF8A","#A6CEE3","#FB9A99")
         self.list_of_colors = (
             "#E5E5E5", "#CCCCCC", "#B2B2B2", "#999999", "#808080", "#666666", "#4D4D4D", "#333333", "#E8E3E3",
             "#EBE0E0", "#EDDEDE", "#F0DBDB", "#F2D9D9", "#F5D6D6", "#F7D4D4", "#FAD1D1", "#FCCFCF", "#FFCCCC",
@@ -156,56 +172,557 @@ class PyVisWrapper:
             "#B81466", "#C20A66", "#CC0066", "#54454C", "#5C3D4C", "#63364D", "#6B2E4D", "#73264D", "#7A1F4D",
             "#82174D", "#8A0F4D", "#91084D", "#99004D", "#382E33", "#3D2933", "#422433", "#471F33", "#4D1933",
             "#521433", "#570F33", "#5C0A33", "#610533", "#660033")
+
+
+
         self.color_dict = {}
 
-    def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), launch_html: bool = True,
-             notebook_mode: bool = False, **kwargs) -> None:
+    @classmethod
+    def remove_duplicates_in_iterable_based_on_asset_id(self, list_of_objects: [OTLObject]) -> [
+        OTLObject]:
+        unique = {}
+        for elem in list_of_objects:
+            if elem.typeURI == 'http://purl.org/dc/terms/Agent':
+                unique.setdefault(elem.agentId.identificator, elem)
+            else:
+                unique.setdefault(elem.assetId.identificator, elem)
+        return list(unique.values())
+
+    def show(self, list_of_objects: [OTLObject], html_path: Path = Path('example.html'), visualisation_option:int = 1, launch_html: bool = True,
+             notebook_mode: bool = False,collection_threshold=-1, **kwargs) -> None:
+
+        if collection_threshold == -1:
+            collection_threshold = self.collection_relation_count_threshold
+
+
         if notebook_mode and kwargs.get('cdn_resources') != 'in_line':
             kwargs['cdn_resources'] = 'in_line'
-        g = networkx.Network(directed=True, notebook=notebook_mode, **kwargs)
+        g = pyvis_network.Network(directed=True, notebook=notebook_mode, **kwargs)
 
         assets = []
         relations = []
+        relations_per_asset_doel = defaultdict(list)
+        relations_per_asset_bron = defaultdict(list)
+        relations_per_asset_undirected = defaultdict(list)
         for o in list_of_objects:
             if is_relation(o):
                 relations.append(o)
+                if is_directional_relation(o):
+                    self.add_object_to_ordering(o, relations_per_asset_doel,o.doelAssetId.identificator)
+                    self.add_object_to_ordering(o, relations_per_asset_bron,o.bronAssetId.identificator)
+                else:
+                    self.add_object_to_ordering(o, relations_per_asset_undirected,
+                                                o.doelAssetId.identificator)
+                    self.add_object_to_ordering(o, relations_per_asset_undirected,
+                                                o.bronAssetId.identificator)
             else:
                 assets.append(o)
 
         nodes_created = self.create_nodes(g, assets)
+
+        self.special_nodes = []
+        self.special_edges = []
+        # remove relations to asset that have to many relation create a new node with one relation
+        self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
+                                                initial_relations_per_asset=relations_per_asset_doel,
+                                                directed =True,
+                                                collection_threshold=collection_threshold)
+        self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
+                                                initial_relations_per_asset=relations_per_asset_bron,
+                                                directed =True,use_bron=False,
+                                                collection_threshold=collection_threshold)
+
+        self.create_special_nodes_and_relations(g=g, assets=assets, relations=relations,
+                                                initial_relations_per_asset=relations_per_asset_undirected,
+                                                directed=False, use_bron=False,
+                                                collection_threshold=collection_threshold)
+
         self.create_edges(g, list_of_objects=relations, nodes=nodes_created)
-        options = ('options = {"nodes": {"font":{"bold":{"size": 18}}}, "interaction": {"dragView": true}, "physics": '
-                   '{"solver": "barnesHut", "stabilization": true, "barnesHut" : {"centralGravity" : 0, '
-                   '"springLength" : 100, "avoidOverlap" : 0.05,"gravitationalConstant" : -2500}}}')
+
+        # hierarchical + hierarchical repulse physics
+        options_1_hierarchisch = ('options = {'
+                      '"nodes": '
+                      '{'
+                      '      "font":'
+                      '      {'
+                      '           "size": 25,'
+                      '           "color":"#000000" '
+                      '       },'
+                      '       "margin": 10,'
+                      '       "widthConstraint":'
+                      '       {   '
+                      '           "minimum": 150,'
+                      '           "maximum": 250'
+                      '       }   '
+                      '}, '
+                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
+                      ' "layout": '
+                      '{'
+                      '     "hierarchical": '
+                      '     {'
+                      '         "enabled": true,'
+                      '         "levelSeparation": 290,'
+                      '         "nodeSpacing": 467,'
+                      '         "treeSpacing": 492,'
+                      '         "edgeMinimization": false,'
+                      '         "parentCentralization": false,'
+                      '     "   direction": "LR"'
+                      '     }'
+                      '},'
+                      '"physics": '
+                      '{'
+                      '     "hierarchicalRepulsion":    '
+                      '     {'
+                      '         "centralGravity": 1.05,'
+                      '         "springLength": 170,'
+                      '         "springConstant": 1,'
+                      '         "nodeDistance": 90,'
+                      '         "avoidOverlap": 1'
+                      '     },'
+                      '"minVelocity": 0.75,'
+                      '"solver": "hierarchicalRepulsion",'
+                        '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'         
+                      '}'
+                '}')
+
+        # special barneshut setting
+        options_2_spiderweb = ('options = {'
+                      '"nodes": '
+                      '{'
+                      '      "font":'
+                      '      {'
+                      '           "size": 25,'
+                      '           "color":"#000000" '
+                      '       },'
+                      '       "margin": 10,'
+                      '       "widthConstraint":'
+                      '       {   '
+                      '           "minimum": 150,'
+                      '           "maximum": 250'
+                      '       }   '
+                      '}, '
+                      '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
+                      '"physics":'
+                      '{'
+                      '"barnesHut": '
+                      '{'
+                      '       "theta": 0.1, '
+                      '       "gravitationalConstant": -475455,   '   
+                      '       "centralGravity": 0.1,'
+                      '       "springLength": 150,'
+                      '       "springConstant": 22,'
+                      '       "nodeDistance": 125,'
+                      '       "damping": 0.73, '    
+                      '       "avoidOverlap": 1'
+                      '},'
+                      '"minVelocity": 0.75,'
+                      '"solver": "barnesHut"'
+                      '},'
+                      '"layout" : {'
+                      '"clusterThreshold": 150'
+                      ' },'
+                      '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'         
+
+                      '}')
+
+        # shell setting
+        options_3_shell = ('options = {'
+                              '"nodes": '
+                              '{'
+                              '      "font":'
+                              '      {'
+                              '           "size": 25,'
+                              '           "color":"#000000" '
+                              '       },'
+                              '       "margin": 10,'
+                              '       "widthConstraint":'
+                              '       {   '
+                              '           "minimum": 150,'
+                              '           "maximum": 250'
+                              '       }   '
+                              '}, '
+                              '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
+                              '"physics":'
+                              '{'
+                              ' "enabled": false'
+                              '}' 
+                        '}')
+
+        options_4_hierarch_repulsion = ('options = {'
+                               '"nodes": '
+                               '{'
+                               '      "font":'
+                               '      {'
+                               '           "size": 25,'
+                               '           "color":"#000000" '
+                               '       },'
+                               '       "margin": 10,'
+                               '       "widthConstraint":'
+                               '       {   '
+                               '           "minimum": 150,'
+                               '           "maximum": 250'
+                               '       }   '
+                               '}, '
+                               '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
+                               ' "physics": {'
+                               '     "hierarchicalRepulsion": {'
+                               '     "centralGravity": 9.45,'
+                               '     "springLength": 60,'
+                               '     "springConstant": 0.16,'
+                               '     "nodeDistance": 155,'
+                               '     "avoidOverlap": 1'
+                               '  },'
+                               '"minVelocity": 0.75,'
+                               '"solver": "hierarchicalRepulsion"'
+                               '},'
+                               '"layout" : {'
+                               '"clusterThreshold": 150'
+                               ' },'
+                               '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'
+
+                               '}')
+
+        options_5_forceAtlas2Based = ('options = {'
+                                     '"nodes": '
+                                     '{'
+                                     '      "font":'
+                                     '      {'
+                                     '           "size": 25,'
+                                     '           "color":"#000000" '
+                                     '       },'
+                                     '       "margin": 10,'
+                                     '       "widthConstraint":'
+                                     '       {   '
+                                     '           "minimum": 150,'
+                                     '           "maximum": 250'
+                                     '       }   '
+                                     '}, '
+                                     '"interaction": {"dragView": true,"hover":true, "selectConnectedEdges": false,"tooltipDelay":500}, '
+                                     '"physics": {'
+                                     '   "forceAtlas2Based": {'
+                                     '   "theta": 1,'
+                                     '   "gravitationalConstant": -429,'
+                                     '   "centralGravity": 0.055,'
+                                     '   "springLength": 205,'
+                                     '   "springConstant": 0.56,'
+                                     '   "damping": 0.53,'
+                                     '   "avoidOverlap": 0.46'
+                                     '   },'
+                                     '"minVelocity": 0.75,'
+                                     '"solver": "forceAtlas2Based"'
+                                     '},'
+                                     '"layout" : {'
+                                     '"clusterThreshold": 150'
+                                     ' },'
+                                   '"stabilization": '
+                      '{'
+                         ' "enabled": true,'
+                          '"iterations": 1000,'
+                          '"fit": true'
+                      '   }'
+
+                                     '}')
+
         # see https://visjs.github.io/vis-network/docs/network/#options => {"configure":{"showButton":true}}
-        g.set_options(options)
+        if visualisation_option == 2:
+            print(options_2_spiderweb)
+            g.set_options(options_2_spiderweb)
+        elif visualisation_option == 3:
+            print(options_3_shell)
+            g.set_options(options_3_shell) # only formatting the nodes, turns off physics and hierarchy
+
+            asset_ids = [ self.get_corrected_identificator(OTL_asset) for OTL_asset in assets ]
+            connected_edge_ids = [(OTL_relation.bronAssetId.identificator, OTL_relation.doelAssetId.identificator) for OTL_relation in relations]
+
+
+            # Compute shell layout positions
+            G = nx.Graph()
+            G.add_nodes_from(asset_ids)
+            G.add_edges_from(connected_edge_ids)
+            pos = nx.shell_layout(G)
+
+
+            scale = max((500/17) * len(asset_ids), 300)
+
+            # apply the shell graph positions to the pyvis network
+            for node_id, node_pos in pos.items():
+                node = g.get_node(node_id)
+                if node:
+                    node["x"] = node_pos[0]*scale
+                    node["y"] = node_pos[1]*scale
+        elif visualisation_option == 4:
+            print(options_4_hierarch_repulsion)
+            g.set_options(options_4_hierarch_repulsion)
+        elif visualisation_option == 5:
+            print(options_5_forceAtlas2Based)
+            g.set_options(options_5_forceAtlas2Based)
+            
+        else:
+            print(options_1_hierarchisch)
+            g.set_options(options_1_hierarchisch)
+
+
+
 
         g.write_html(str(html_path), notebook=notebook_mode)
         self.modify_html(Path(html_path), notebook=notebook_mode)
         if not self.notebook_mode and launch_html:
             webbrowser.open(str(html_path))
 
+    def add_object_to_ordering(self, o, relations_per_asset_doel, asset_id):
+        typeURI = o.typeURI
+        if not typeURI in relations_per_asset_doel:
+            relations_per_asset_doel[typeURI] = defaultdict(dict)
+
+        if hasattr(o, "rol"):
+            rol = o.rol
+        else:
+            rol = "None"
+        if not rol in relations_per_asset_doel[typeURI]:
+            relations_per_asset_doel[typeURI][rol] = defaultdict(
+                list)
+        relations_per_asset_doel[typeURI][rol][asset_id].append(o)
+
+    @classmethod
+    def get_corrected_identificator(cls, otl_object: RelationInteractor):
+        identificator = "no_identificator"
+        if hasattr(otl_object, "assetId"):
+            identificator = str(otl_object.assetId.identificator)
+        elif hasattr(otl_object, "agentId"):
+            identificator = str(otl_object.agentId.identificator)
+
+        return identificator
+
+    def get_screen_name(cls, otl_object: RelationInteractor) -> Optional[str]:
+        if otl_object is None:
+            return None
+        naam = cls.abbreviate_if_AIM_id(cls.get_corrected_identificator(otl_object))
+        if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+            agent: Agent = otl_object
+            # agent will always be external
+            external_tranlation = "extern"
+
+            if hasattr(agent, 'naam') and agent.naam:
+                naam = " ".join([agent.naam, f"({external_tranlation})"])
+            else:
+                naam = " ".join([naam, f"({external_tranlation})"])
+        else:
+            aim_object: AIMObject =  otl_object
+            if hasattr(aim_object, 'naam') and aim_object.naam:
+                naam = aim_object.naam
+            else:
+                naam = naam
+
+            if aim_object.assetId.toegekendDoor == "OTL Wizard 2":
+                external_tranlation = "external"
+                naam = " ".join([naam, f"({external_tranlation})"])
+
+        return naam
+
+    def create_special_nodes_and_relations(self, g, assets, relations, initial_relations_per_asset,
+                                           use_bron:bool=True, directed:bool=True,collection_threshold=10):
+        assets_with_to_many = []
+        assets_count = len(assets)
+
+        single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(
+            initial_relations_per_asset)
+
+        self.asset_id_to_display_name_dict = {
+            self.get_corrected_identificator(asset): self.get_screen_name(asset) for asset in
+            assets}
+
+        for asset in assets:
+            asset_id = self.get_corrected_identificator(asset)
+
+            if asset_id in single_level_dict.keys():
+                # for relations_per_asset in single_level_dict[asset_id]:
+                relation_lists_per_asset = single_level_dict[asset_id]
+
+                
+                for relations_per_asset in relation_lists_per_asset:
+                
+                    needs_collection = len(relations_per_asset) >= collection_threshold
+                    
+                    if needs_collection:
+                        assets_with_to_many.append(asset)
+
+
+                        relatie = deepcopy(relations_per_asset[0])
+                        new_node_id = f"special_node_{len(self.special_nodes)}_{self.asset_id_to_display_name_dict[asset_id]}"
+                        if directed:
+                            if use_bron:
+                                list_of_ids = []
+                                for rel in relations_per_asset:
+                                    display_name =  self.asset_id_to_display_name_dict[rel.bronAssetId.identificator]
+                                    list_of_ids.append(display_name)
+                                    self.relation_id_to_collection_id[rel.assetId.identificator].append(new_node_id)
+                                    self.collection_id_to_list_of_relation_ids[new_node_id].append((rel.assetId.identificator,display_name))
+
+                                self.create_special_node(g, new_node_id=new_node_id,
+                                                         list_of_ids=list_of_ids)
+                                relatie.bronAssetId.identificator = new_node_id
+                                relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+
+                                # remove the relations from the original list
+                                for relation in relations_per_asset:
+                                    relation_copy = deepcopy(relation)
+                                    if relation in relations:
+                                        relation_copy = deepcopy(relation)
+                                        relations.remove(relation)
+                                    else:
+                                        relation_copy = \
+                                        self.collection_relations_id_to_relation_data[
+                                            relation.assetId.identificator]
+                                    relation_copy.doelAssetId.identificator = new_node_id
+                                    self.collection_relations_id_to_relation_data[relation.assetId.identificator] = relation_copy
+
+
+                            else:
+                                list_of_ids = []
+                                for rel in relations_per_asset:
+                                    display_name = self.asset_id_to_display_name_dict[
+                                        rel.doelAssetId.identificator]
+                                    list_of_ids.append(display_name)
+                                    self.relation_id_to_collection_id[rel.assetId.identificator].append(new_node_id)
+                                    self.collection_id_to_list_of_relation_ids[new_node_id].append(
+                                        (rel.assetId.identificator, display_name))
+
+                                self.create_special_node(g, new_node_id=new_node_id,
+                                                         list_of_ids=list_of_ids)
+                                relatie.doelAssetId.identificator = new_node_id
+                                relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+
+                                # remove the relations from the original list
+                                for relation in relations_per_asset:
+                                    
+                                    if relation in relations:
+                                        relation_copy = deepcopy(relation)
+                                        relations.remove(relation)
+                                    else:
+                                        relation_copy = self.collection_relations_id_to_relation_data[
+                                            relation.assetId.identificator]
+                                 
+                                    relation_copy.bronAssetId.identificator = new_node_id
+                                    self.collection_relations_id_to_relation_data[
+                                        relation.assetId.identificator] = relation_copy
+                        else:
+                            # for undirected relation detects the bronAssetId or doelAssetId itself
+                            list_of_ids = []
+
+                            for rel in relations_per_asset:
+                                if rel.doelAssetId.identificator == asset_id:
+                                    display_name = self.asset_id_to_display_name_dict[
+                                        rel.bronAssetId.identificator]
+                                elif rel.bronAssetId.identificator == asset_id:
+                                    display_name = self.asset_id_to_display_name_dict[
+                                        rel.doelAssetId.identificator]
+                                list_of_ids.append(display_name)
+
+                                self.relation_id_to_collection_id[
+                                    rel.assetId.identificator].append(new_node_id)
+                                self.collection_id_to_list_of_relation_ids[new_node_id].append(
+                                    (rel.assetId.identificator, display_name))
+
+                            self.create_special_node(g, new_node_id=new_node_id,
+                                                     list_of_ids=list_of_ids)
+                            if relatie.doelAssetId.identificator == asset_id:
+                                relatie.bronAssetId.identificator = new_node_id
+                            elif relatie.bronAssetId.identificator == asset_id:
+                                relatie.doelAssetId.identificator = new_node_id
+                            
+                            
+                            relatie.assetId.identificator = f"special_edge_{len(self.special_edges)}_{relatie.assetId.identificator}"
+
+                            # remove the relations from the original list
+                            for relation in relations_per_asset:
+                                relation_copy = deepcopy(relation)
+                                if relation in relations:
+                                    relations.remove(relation)
+                                else:
+                                    relation_copy =  self.collection_relations_id_to_relation_data[
+                                    relation.assetId.identificator]
+
+
+                                if relation_copy.doelAssetId.identificator == asset_id:
+                                    relation_copy.doelAssetId.identificator = new_node_id
+                                elif relation_copy.bronAssetId.identificator == asset_id:
+                                    relation_copy.bronAssetId.identificator = new_node_id
+                                
+                                self.collection_relations_id_to_relation_data[
+                                    relation.assetId.identificator] = relation_copy
+
+                        self.special_nodes.append(g.get_node(new_node_id))
+
+                        asset_ids = (asset_id, new_node_id)
+                        self.create_relation_edge(asset_ids, g, relatie)
+                        self.special_edges.extend([edge for edge in g.get_edges() if
+                                                   edge["id"] == relatie.assetId.identificator])
+
+
+    def recursive_unpack_nested_dict_to_single_level_dict(self, nested_dicts:dict, single_level_dict =None):
+        if not single_level_dict:
+            single_level_dict = defaultdict(list)
+        for key,value in nested_dicts.items():
+            if isinstance(value,list):
+                single_level_dict[key].append(value)
+            else:
+                single_level_dict = self.recursive_unpack_nested_dict_to_single_level_dict(value, single_level_dict)
+
+        return single_level_dict
+
     def create_nodes(self, g, list_of_objects: [OTLObject]) -> [OTLObject]:
-        list_of_objects = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
+        list_of_objects = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         nodes = []
         for index, otl_object in enumerate(list_of_objects):
-            if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
-                naam = f'{otl_object.__class__.__name__}_{otl_object.agentId.identificator[:36]}'
-            else:
-                naam = f'{otl_object.__class__.__name__}_{otl_object.assetId.identificator[:36]}'
-            if hasattr(otl_object, 'naam'):
-                naam = otl_object.naam
+            screen_name = self.get_screen_name(otl_object=otl_object)
+
+            # if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
+            #     naam = f'{self.abbreviate_if_AIM_id(otl_object.agentId.identificator)[:self.max_screen_name_char_count]}\n<b>{otl_object.__class__.__name__}</b>'
+            # else:
+            #     naam = f'{self.abbreviate_if_AIM_id(otl_object.assetId.identificator)[:self.max_screen_name_char_count]}\n<b>{otl_object.__class__.__name__}</b>'
+            # if hasattr(otl_object, 'naam') and otl_object.naam:
+            #     naam = f'{otl_object.naam}\n<b>{otl_object.__class__.__name__}</b>'
+            naam = f'{screen_name[:self.max_screen_name_char_count]}\n<b>{otl_object.__class__.__name__}</b>'
 
             selected_color = self.random_color_if_not_in_dict(otl_object.typeURI)
+            color_settings = {
+                                  "border": "#000000",
+                                  "background":selected_color,
+                                  "highlight":
+                                  {
+                                          "border": "#000000",
+                                          "background": "#25bedd"
+                                  },
+                                  "hover": {
+                                        "border": "#000000",
+                                        "background": selected_color
+                                  }
+                            }
+
 
             tooltip = self.get_tooltip(otl_object)
             size = 20
-            shape = 'square'
+            shape = 'box'#'square'
             if otl_object.typeURI.startswith('https://lgc.'):
-                shape = 'diamond'
+                shape = 'ellipse'#'diamond'
             elif otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
-                shape = 'dot'
+                shape = 'circle'
                 size = 20
 
             if otl_object.typeURI == 'http://purl.org/dc/terms/Agent':
@@ -216,9 +733,10 @@ class PyVisWrapper:
                        label=naam,
                        shape=shape,
                        size=size,
-                       color=selected_color)
+                       color=color_settings,
+                       font={"multi":True})
 
-            g.nodes[index]['title'] = tooltip
+            g.get_node(node_id)['title'] = tooltip
 
             nodes.append(otl_object)
         return nodes
@@ -233,28 +751,43 @@ class PyVisWrapper:
 
     def create_edges(self, g, list_of_objects: [OTLObject], nodes) -> None:
         asset_ids = list(self.get_all_ids_from_objects(nodes))
-        relaties = remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
+        asset_ids.extend(self.collection_id_to_list_of_relation_ids.keys())
+        relaties = self.remove_duplicates_in_iterable_based_on_asset_id(list_of_objects)
 
         for relatie in relaties:
-            if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
-                # only display relations between assets that are displayed
-                if is_directional_relation(relatie):
-                    if (relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
-                            and relatie.rol is not None):
-                        g.add_edge(source=relatie.bronAssetId.identificator,
-                                   to=relatie.doelAssetId.identificator,
-                                   color=self.map_relation_to_color(relatie),
-                                   width=2, arrowStrikethrough=False, label=relatie.rol)
-                    else:
-                        g.add_edge(source=relatie.bronAssetId.identificator,
-                                   to=relatie.doelAssetId.identificator,
-                                   color=self.map_relation_to_color(relatie),
-                                   width=2, arrowStrikethrough=False)
-                else:
-                    g.add_edge(to=relatie.bronAssetId.identificator,
-                               source=relatie.doelAssetId.identificator,
+            self.create_relation_edge(asset_ids, g, relatie)
+
+        for collection_relatie in self.collection_relations_id_to_relation_data.values():
+            self.create_relation_edge(asset_ids, g, collection_relatie,physics=False,hidden=True)
+    
+       
+    def create_relation_edge(self, asset_ids, g, relatie,physics=True,hidden=False):
+        if relatie.bronAssetId.identificator in asset_ids and relatie.doelAssetId.identificator in asset_ids:
+            # only display relations between assets that are displayed
+            if is_directional_relation(relatie):
+                if (
+                        relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
+                        and relatie.rol is not None):
+                    g.add_edge(id=relatie.assetId.identificator,
+                               source=relatie.bronAssetId.identificator,
+                               to=relatie.doelAssetId.identificator,
                                color=self.map_relation_to_color(relatie),
-                               width=2, arrowStrikethrough=False, label='remove_arrow')
+                               width=2, arrowStrikethrough=False, label=relatie.rol,
+                               smooth={"enabled": False},physics=physics,hidden=hidden)
+                else:
+                    g.add_edge(id=relatie.assetId.identificator,
+                               source=relatie.bronAssetId.identificator,
+                               to=relatie.doelAssetId.identificator,
+                               color=self.map_relation_to_color(relatie),
+                               width=2, arrowStrikethrough=False, smooth={"enabled": False},
+                               physics=physics,hidden=hidden)
+            else:
+                g.add_edge(id=relatie.assetId.identificator,
+                           to=relatie.bronAssetId.identificator,
+                           source=relatie.doelAssetId.identificator,
+                           color=self.map_relation_to_color(relatie),
+                           width=2, arrowStrikethrough=False, label='remove_arrow',
+                           smooth={"enabled": False},physics=physics,hidden=hidden)
 
     def map_relation_to_color(self, relatie: OTLObject) -> str:
         return self.relatie_color_dict.get(relatie.typeURI, 'brown')
@@ -263,11 +796,15 @@ class PyVisWrapper:
         if type_uri not in self.color_dict.keys():
             if type_uri == 'http://purl.org/dc/terms/Agent':
                 random_color = '#FFA500'
+            if len(self.color_dict) < len(self.awv_color_list):
+                random_color = self.awv_color_list[len(self.color_dict)]
+                self.color_dict[type_uri] = random_color
             else:
                 random_color = choice(self.list_of_colors)
-            while random_color in self.color_dict.values():
-                random_color = choice(self.list_of_colors)
-            self.color_dict[type_uri] = random_color
+                while random_color in self.color_dict.values():
+                    random_color = choice(self.list_of_colors)
+                self.color_dict[type_uri] = random_color
+
         return self.color_dict[type_uri]
 
     @classmethod
@@ -276,8 +813,8 @@ class PyVisWrapper:
                 replace('\n', '<br/>').replace(' ', '&nbsp;'))
         return f'<htmlTitle>("<div style="font-family: monospace;">{html}</div>")<htmlTitleEnd>'
 
-    @classmethod
-    def modify_html(cls, file_path: Path, notebook: bool = False) -> None:
+    
+    def modify_html(self, file_path: Path, notebook: bool = False) -> None:
         with open(file_path) as file:
             file_data = file.readlines()
 
@@ -307,14 +844,339 @@ class PyVisWrapper:
                 replace('\\\")\\u003chtmlTitleEnd\\u003e"', '")').replace('\\u003c', '<').replace('\\u003e', '>')
         file_data.insert(index_of_nodes, nodes_line)
 
-        cls.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
-
+        self.modify_edges_in_html(file_data=file_data, index_of_edges=index_of_edges)
+        #insert handler that activates when DOMcontent is loaded
+        file_data.insert(index_of_function - 5,
+                         'document.addEventListener("DOMContentLoaded", (event) => {\n')
+        file_data.insert(index_of_function - 4,
+                         'document.getElementById("mynetwork").style.display="flex";\n')
+        file_data.insert(index_of_function - 3,
+                        '});\n')
+        #add html title?
         file_data.insert(index_of_function - 2, '              // text to html element\n')
         file_data.insert(index_of_function - 1, '              function htmlTitle(html) {' + '\n')
         file_data.insert(index_of_function, '                const container = document.createElement("div");' + '\n')
         file_data.insert(index_of_function + 1, '                container.innerHTML = html;' + '\n')
         file_data.insert(index_of_function + 2, '                return container;' + '\n')
         file_data.insert(index_of_function + 3, '              }' + '\n')
+
+        # insert handler that activates when DOMcontent is loaded
+        # file_data.insert(index_of_function + 4,
+        #                  'document.addEventListener("DOMContentLoaded", (event) => {\n')
+        # file_data.insert(index_of_function + 5,
+        #                  'document.getElementById("mynetwork").style.display="flex";\n')
+        # file_data.insert(index_of_function + 6,
+        #                  '});\n')
+        add_data = ['var nodeSelected = false;',
+                    'var relationIdToSubEdges = new Map();',
+                    'var relationIdToTotalSubEdgeCount = new Map();',
+                    'var relationIdToJointNodes = new Map();',
+                    'var SubEdgesToOriginalRelationId = new Map();',
+                    'var edgeJointNodesIdToConnectionDataDict = new Map(); ',
+                    'var newWidth = 0;',
+                    'var newHeight = 0;',
+                    'var ctrlSelectedNodesList = []; //to store all the nodeIds that have been clicked while holding down ctrl',
+                    'var lastCtrlSelectedNode = null;',
+                    'var currentlyHoveredNode = null;',
+                    'var noTooltips = false;',
+                    f'var collection_id_to_list_of_relation_ids = {json.dumps(self.collection_id_to_list_of_relation_ids)};',
+                    'document.addEventListener("DOMContentLoaded", (event) => ',
+                    '{',
+                    # '   network.on("beforeDrawing",  function(ctx) ',
+                    # '   {',
+                    # '       //fill the canvas with a white background before drawing',
+                    # '       // save current translate/zoom',
+                    # '       ctx.save();',
+                    # '       // reset transform to identity',
+                    # '       ctx.setTransform(1, 0, 0, 1, 0, 0);',
+                    # '       // fill background with solid white',
+                    # "       ctx.fillStyle = '#ffffff';",
+                    # '       ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)',
+                    # '       // restore old transform',
+                    # '       ctx.restore();',
+                    # # '       console.log("before drawing: " + ctx.canvas.clientWidth + ", " + ctx.canvas.clientHeight);'
+                    # '   })'
+                    '   ',
+                    "   network.on('selectEdge', function(params) ",
+                    "   {",
+                    "       if (nodeSelected)",
+                    "       {",
+                    "           nodeSelected = false;" ,
+                    "           return",
+                    "       }",
+                    "       if (params.edges.length > 0) ",
+                    "       {",
+                    # "           console.log('Edge clicked:', params.edges, 'clicked at DOM', params.pointer.DOM, 'and canvas',params.pointer.canvas);",
+                    "           var clickedEdge = network.body.data.edges._data.get(params.edges[0]);",
+                    "           addEdgeJointNode(params.pointer.canvas.x, params.pointer.canvas.y,clickedEdge);",
+                    "           network.selectEdges([]);",
+                    # "       sendCurrentCombinedDataToPython()",
+                    "       }",
+                    "   });",
+                    # "   network.on('click', function(params) ",
+                    # "   {",
+                    # "       console.log(params);",
+                    # "   });",
+                    "   network.on('selectNode', function(params) ",
+                    "   {",
+                    "       if (params.nodes.length > 0) ",
+                    "       {",
+                    "           if (params.event.srcEvent.ctrlKey)",
+                    "           {",
+                    "               lastCtrlSelectedNode = params.nodes[0]",
+                    "               ctrlSelectedNodesList.push(lastCtrlSelectedNode);",
+                    "               network.selectNodes(ctrlSelectedNodesList,false);",
+                    "           }",
+                    "           else",
+                    "               ctrlSelectedNodesList = params.nodes;",
+                    "           ",
+                    # "           console.log('node clicked:', params);",
+                    "           nodeSelected = true //just here to make sure the event for edge selection is not triggered",
+                    "       }",
+                    "   });",
+                    "   network.on('showPopup', function(params) ",
+                    "   {",
+                    "       if (noTooltips)",
+                    "       {",
+                    "           return"
+                    "       }",
+                    "   });",
+                    "   network.on('select', function(params) ",
+                    "   {",
+                    # "       console.log('selection changed clicked:', params.nodes,params.edges);",
+                    "       currentlyClickedNode = network.getNodeAt(params.pointer.DOM);",
+                    # "       console.log('currentlyClickedNode:', currentlyClickedNode);",
+                    "       if(currentlyClickedNode)",
+                    "       {" ,
+                    "           if(lastCtrlSelectedNode != currentlyClickedNode &&",
+                    "               params.event.srcEvent.ctrlKey && ",
+                    "               ctrlSelectedNodesList.includes(currentlyClickedNode)) ",
+                    "           {",
+                    "               const index = ctrlSelectedNodesList.indexOf(currentlyClickedNode);",
+                    "               if (index > -1) // only splice array when item is found",
+                    "               { ",
+                    "                   ctrlSelectedNodesList.splice(index, 1); // 2nd parameter means remove one item only",
+                    "                   network.selectNodes(ctrlSelectedNodesList,false);",
+                    "               }",
+                    "           }",
+                    "       }",
+                    "       else if(!params.event.srcEvent.ctrlKey)",
+                    "       {",
+                    "           ctrlSelectedNodesList = [];",
+                    "       }",
+                    "       lastCtrlSelectedNode = null;" ,
+                    # "       if(params.edges.length == 1)",
+                    # "       {",
+                    # "           var clickedEdge = network.body.data.edges._data.get(params.edges[0]);",
+                    # "           addEdgeJointNode(params.pointer.canvas.x, params.pointer.canvas.y, clickedEdge);",
+                    # "           network.selectEdges([]);",
+                    # # "           sendCurrentCombinedDataToPython()",
+                    # "       }",
+                    "   });",
+                    "   network.on('hoverNode', function(params) ",
+                    "   {",
+                    "       if (params.node.includes('special_node') && (params.node in collection_id_to_list_of_relation_ids))",
+                    "       {",
+                    '           // hide all relations in de collection when not hovering on collection',
+                    '          var relations_in_collection_list = collection_id_to_list_of_relation_ids[params.node]',
+                    '          var updateData = []',
+                    '          for (const index in relations_in_collection_list) ',
+                    '           {',
+                    '               var relation_id = relations_in_collection_list[index][0]',
+                    '               console.log(relation_id)',
+                    "               updateData.push({'id': relation_id, 'hidden': false})",
+                    '           }',
+                    "           applyUpdateEdgeInNetwork(updateData, notify_python=false);",
+                    "       }",
+                    "       if (params.node.includes('edgeJoint'))",
+                    "       {",
+                    "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 1}, notify_python=false);",
+                    "           currentlyHoveredNode = params.node //used in dragMultiSelect.js",
+                    "       }",
+                    "       //don't show tooltip if your pressing ctrl or right-mouse (buttons == 2)",
+                    "       noTooltips = params.event.ctrlKey || params.event.buttons == 2",
+                    "   });",
+                    "   network.on('blurNode', function(params) ",
+                    "   {",
+                    "       "
+                    "       if (params.node.includes('special_node') && (params.node in collection_id_to_list_of_relation_ids))",
+                    "       {",
+                    '           // hide all relations in de collection when not hovering on collection',
+                    '          var relations_in_collection_list = collection_id_to_list_of_relation_ids[params.node]',
+                    '          var updateData = []',
+                    '          for (const index in relations_in_collection_list) ' ,
+                    '           {',
+                    '               var relation_id = relations_in_collection_list[index][0]',
+                    '               console.log(relation_id)',
+                    "               updateData.push({'id': relation_id, 'hidden': true})",
+                    '           }',
+                    "           applyUpdateEdgeInNetwork(updateData, notify_python=false);",
+                    "       }",
+                    "       if (params.node.includes('edgeJoint') && network.body.data.nodes._data.has(params.node))",
+                    "       {",
+                    "           applyUpdateNodeInNetwork({'id': params.node,'opacity': 0}, notify_python=false);",
+                    "           currentlyHoveredNode = null //used in dragMultiSelect.js",
+                    "       }",
+                    "       noTooltips = params.event.ctrlKey || params.event.buttons == 2",
+                    "   });",
+                    "   network.on('dragEnd', function(params) ",
+                    "   {",
+                    # "      console.log('dragEnd:', params);",
+                    "      if (params.nodes.length > 0)",
+                    "      {",
+                    "           var draggedNodeId = params.nodes[0]; ",
+                    "           if (draggedNodeId.includes('edgeJoint'))",
+                    "           {",
+                    "               var newPos = network.getPosition(draggedNodeId)",
+                    "               var draggedNode = network.body.data.nodes._data.get(draggedNodeId);",
+                    "               applyUpdateNodeInNetwork({'id': draggedNodeId,'x':  newPos.x,'y': newPos.y});",
+                    "           }",
+                    "           else",
+                    "               sendNetworkChangedNotificationToPython();",
+                    "      }",
+                    "   });",
+                    '});',
+                    "function addEdgeJointNode(x,y,clickedEdge)",
+                    "{",
+                    # "   console.log(clickedEdge);",
+                    '   var edgeId = clickedEdge["id"];',
+                    # "   var edgeJointNodeNbrPerEdge = network.body.data.nodes.length;",
+                    "   var edgeJointNodeNbrPerEdge = 0;",
+                    "   if ( relationIdToJointNodes.has(edgeId))",
+                    "       edgeJointNodeNbrPerEdge =  relationIdToJointNodes.get(edgeId).length;",
+                    "   else",
+                    # "   if (!relationIdToJointNodes.has(edgeId))",
+                    "       relationIdToJointNodes.set(edgeId, []);",
+                    '   var newEdgeJointNodeId = "edgeJoint_" + edgeJointNodeNbrPerEdge + "_" + edgeId;',
+                    "   relationIdToJointNodes.get(edgeId).push(newEdgeJointNodeId);",
+                    "   edgeJointNodesIdToConnectionDataDict.set(newEdgeJointNodeId, {});",
+                    '   var selected_color = "#" + clickedEdge["color"]',
+                    "   var color_settings = {",
+                    '              "border": "#000000",',
+                    '              "background":selected_color,',
+                    '              "highlight":',
+                    '              {',
+                    '                      "border": "#000000",',
+                    '                      "background": "#25bedd"',
+                    '              },',
+                    '              "hover": {',
+                    '                    "border": "#000000",',
+                    '                    "background": selected_color',
+                    '              }',
+                    '        }',
+                    " ",
+                    "   applyAddNodesToNetwork([{"
+                    "       'x': x,"
+                    "       'y': y,"
+                    '       "color": color_settings,'
+                    '       "id": newEdgeJointNodeId,'
+                    '       "shape": "dot",'
+                    '       "size": 10'
+                    '   }])',
+                    # "   console.log('newEdgeJointNodeId: ' + newEdgeJointNodeId);",
+                    "   ",
+                    "   addSubEdgesToEdgeJointNode(clickedEdge, newEdgeJointNodeId)",
+                    "   ",
+                    "   "
+                    "}",
+                    "function addSubEdgesToEdgeJointNode(clickedEdge,newEdgeJointNodeId)",
+                    "{",
+                    # "   console.log(clickedEdge);",
+                    '   var edgeId = clickedEdge["id"];',
+                    "   var subEdge1Nbr = 0;",
+                    # "   var subEdge1Nbr = network.body.data.edges.length;",
+                    "   ",
+                    "   var originalEdgeId = edgeId",
+                    "   if ( SubEdgesToOriginalRelationId.has(edgeId))",
+                    "   {",
+                    "       originalEdgeId =  SubEdgesToOriginalRelationId.get(edgeId);//if the clicked edge was a subedge get the original relationId",
+                    "       SubEdgesToOriginalRelationId.delete(edgeId);",
+                    "       ",
+                    "       subEdge1Nbr =  relationIdToTotalSubEdgeCount.get(originalEdgeId);",
+                    "       var subEdges = relationIdToSubEdges.get(originalEdgeId);",
+                    "       var removeSubEdgeIndex = subEdges.indexOf(edgeId);",
+                    "       subEdges.splice(removeSubEdgeIndex,1);",
+                    "   }",
+                    "   else",
+                    "   {",
+                    "       if ( relationIdToSubEdges.has(originalEdgeId))",
+                    "           subEdge1Nbr =  relationIdToSubEdges.get(originalEdgeId).length;",
+                    "       else",
+                    "       {"
+                    "           relationIdToTotalSubEdgeCount.set(originalEdgeId, 0);",
+                    "           relationIdToSubEdges.set(originalEdgeId, []);",
+                    "       }"
+                    "   }",
+                    # "   var subEdge2Nbr = subEdge1Nbr + 1;",
+                    "   ",
+                    "   var newUniqueId = crypto.randomUUID()",
+                    '   var newSubEdge1Id = "subEdge_" + subEdge1Nbr + "_" + newUniqueId;',
+                    '   var newSubEdge2Id = "subEdge_sec_" + subEdge1Nbr + "_" + newUniqueId;',
+                    "   relationIdToSubEdges.get(originalEdgeId).push(newSubEdge1Id);",
+                    "   relationIdToSubEdges.get(originalEdgeId).push(newSubEdge2Id);",
+                    "   relationIdToTotalSubEdgeCount.set(originalEdgeId, relationIdToTotalSubEdgeCount.get(originalEdgeId)+1);",
+                    "   SubEdgesToOriginalRelationId.set(newSubEdge1Id, originalEdgeId);",
+                    "   SubEdgesToOriginalRelationId.set(newSubEdge2Id,originalEdgeId);",
+
+                    "   newSubEdge1Data = JSON.parse(JSON.stringify(clickedEdge));",
+                    "   newSubEdge2Data = JSON.parse(JSON.stringify(clickedEdge));",
+                    "   ",
+                    "   newSubEdge1Data.id = newSubEdge1Id;",
+                    "   newSubEdge1Data.from = newEdgeJointNodeId;",
+                    "   ",
+                    "   newSubEdge2Data.id = newSubEdge2Id",
+                    "   newSubEdge2Data.to = newEdgeJointNodeId;",
+                    "   newSubEdge2Data.arrows = null;",
+                    "   ",
+                    # "   console.log('newSubEdge1Data.id: ' + newSubEdge1Data.id);",
+                    # "   console.log('newSubEdge2Data.id: ' + newSubEdge2Data.id);",
+                    "   applyAddEdgesToNetwork([newSubEdge1Data,newSubEdge2Data])",
+                    "   applyRemoveEdgesFromNetwork([edgeId])",
+                    "   ",
+                    "   //save the connections to the new joint node for later removal",
+                    "   var connection_data = { ",
+                    "       'originalEdgeId': originalEdgeId,",
+                    "       'previousEdgeId': edgeId,",
+                    "       'newSubEdge1Id': newSubEdge1Id,",
+                    "       'newSubEdge2Id': newSubEdge2Id,",
+                    "       'newSubEdge1Data.to': newSubEdge1Data.to,",
+                    "       'newSubEdge2Data.from': newSubEdge2Data.from,",
+                    "       }",
+                    "   edgeJointNodesIdToConnectionDataDict.set(newEdgeJointNodeId, connection_data);",
+                    '   //edit supporting data of the to and from nodes so they have the correct',
+                    '   //to and from themselves',
+                    '   updateNeighbouringEdgeJointNode(newSubEdge1Data.to, newSubEdge2Data.from, newEdgeJointNodeId)',
+                    '   updateNeighbouringEdgeJointNode(newSubEdge2Data.from, newSubEdge1Data.to, newEdgeJointNodeId)',
+                    '   updateConnectingEdgeOnNeighbouringEdgeJointNode(newSubEdge1Data.to,edgeId,newSubEdge1Id)',
+                    '   updateConnectingEdgeOnNeighbouringEdgeJointNode(newSubEdge2Data.from,edgeId,newSubEdge2Id)',
+                    # '   console.log("add edge jointnode")',
+                #     'edgeJointNodesIdToConnectionDataDict.forEach((data,key) =>',
+                # '      {',
+                # '         console.log(key +": " + JSON.stringify(data))',
+                # '      })',
+                # '   console.log(" network.body.data.edges:\\n ")',
+                # 'network.body.data.edges._data.forEach((data,key) =>',
+                # '      {',
+                # '         console.log(key +": " + JSON.stringify(data))',
+                # '      })',
+                    "   ",
+                    "}",
+                    ]
+        # the function that communicates changes in the network to the python backend
+        add_data.extend(self.create_sendNetworkChangedNotificationToPython_js_function())
+        # interfaces that are intended as the only ones allowed to edit the network data
+        # Because they will always notify the python backend of the change (see js function above)
+        add_data.extend(self.create_applyRemoveEdgesFromNetwork_js_function())
+        add_data.extend(self.create_applyRemoveNodesFromNetwork_js_function())
+        add_data.extend(self.create_applyAddNodesToNetwork_js_function())
+        add_data.extend(self.create_applyAddEdgesToNetwork_js_function())
+        add_data.extend(self.create_applyUpdateEdgeInNetwork_js_function())
+        add_data.extend(self.create_applyUpdateNodeInNetwork_js_function())
+        add_data.extend(self.create_updateNeighbouringEdgeJointNode_js_function())
+        add_data.extend(self.create_updateConnectingEdgeOnNeighbouringEdgeJointNode_js_function())
+        
+        self.replace_and_add_lines(file_data,index_of_function + 4,"","",add_data)
+
 
         if index_of_screen_height != -1:
             screen_height_line = file_data.pop(index_of_screen_height)
@@ -337,6 +1199,123 @@ class PyVisWrapper:
         with open(file_path, 'w') as file:
             for line in file_data:
                 file.write(line)
+
+    @classmethod
+    def create_sendNetworkChangedNotificationToPython_js_function(cls):
+        return ['function sendNetworkChangedNotificationToPython()',
+                "{",
+                "   //function that uses the QWebChannel to notify the python application that the network has changed",
+                # "   console.log('Network changed through correct interface'); ",
+                "   if (window.backend)",
+                "   {",
+                "       window.backend.receive_network_changed_notification();",
+                # "       console.log('called window.backend.receive_network_changed_notification()'); ",
+                "   }"
+                "   else",
+                "   {"
+                '       console.log("sendNetworkChangedNotificationToPython: QWebChannel is not initialized yet.");',
+                # '       alert("DataVisualisationScreen: QWebChannel is not initialized");',
+                "   }",
+
+                "}"]
+
+    @classmethod
+    def create_applyRemoveEdgesFromNetwork_js_function(cls):
+        return ['function applyRemoveEdgesFromNetwork(edgeIdList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.edges.remove(edgeIdList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyRemoveNodesFromNetwork_js_function(cls):
+        return ['function applyRemoveNodesFromNetwork(nodeIdList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.nodes.remove(nodeIdList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyAddNodesToNetwork_js_function(cls):
+        return ['function applyAddNodesToNetwork(nodeCreationDataList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.nodes.add(nodeCreationDataList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyAddEdgesToNetwork_js_function(cls):
+        return ['function applyAddEdgesToNetwork(edgeCreationDataList, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.edges.add(edgeCreationDataList);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyUpdateEdgeInNetwork_js_function(cls):
+        return ['function applyUpdateEdgeInNetwork(changedEdgeData, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   network.body.data.edges.updateOnly(changedEdgeData);',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_applyUpdateNodeInNetwork_js_function(cls):
+        return ['function applyUpdateNodeInNetwork(changedNodeData, notify_python=true)',
+                '{',
+                '   //This is the only function that should call the following function',
+                '   //https://stackoverflow.com/questions/32765015/vis-js-modify-node-properties-on-click',
+                '   network.body.data.nodes.updateOnly(changedNodeData);',
+                '   ',
+                '   if(notify_python)',
+                '       sendNetworkChangedNotificationToPython();',
+                '}']
+
+    @classmethod
+    def create_updateNeighbouringEdgeJointNode_js_function(cls):
+        return ['function updateNeighbouringEdgeJointNode(nodeIdToUpdate, removedNodeId, newNeighbourNodeId)',
+                '{',
+                '       //nodeIdToUpdate needs to be an edgeJointNode',
+                '       if(!(nodeIdToUpdate.includes("edgeJoint") && edgeJointNodesIdToConnectionDataDict.has(nodeIdToUpdate)))',
+                '           return;'
+                '       ',
+                '       nodeToUpdateConnectionData = edgeJointNodesIdToConnectionDataDict.get(nodeIdToUpdate)',
+                '       if(nodeToUpdateConnectionData["newSubEdge1Data.to"] == removedNodeId)',
+                '           nodeToUpdateConnectionData["newSubEdge1Data.to"] = newNeighbourNodeId;',
+                '       else if(nodeToUpdateConnectionData["newSubEdge2Data.from"] = newNeighbourNodeId)',
+                '           nodeToUpdateConnectionData["newSubEdge2Data.from"] = newNeighbourNodeId;',
+                '}']
+
+    @classmethod
+    def create_updateConnectingEdgeOnNeighbouringEdgeJointNode_js_function(cls):
+        return [
+            'function updateConnectingEdgeOnNeighbouringEdgeJointNode(nodeIdToUpdate, removedEdgeId, newEdgeId)',
+            '{',
+            '       //nodeIdToUpdate needs to be an edgeJointNode',
+            '       if(!(nodeIdToUpdate.includes("edgeJoint") && edgeJointNodesIdToConnectionDataDict.has(nodeIdToUpdate)))',
+            '           return;'
+            '       ',
+            '       nodeToUpdateConnectionData = edgeJointNodesIdToConnectionDataDict.get(nodeIdToUpdate)',
+            '       if(nodeToUpdateConnectionData["newSubEdge1Id"] == removedEdgeId)',
+            '           nodeToUpdateConnectionData["newSubEdge1Id"] = newEdgeId;',
+            '       else if(nodeToUpdateConnectionData["newSubEdge2Id"] = removedEdgeId)',
+            '           nodeToUpdateConnectionData["newSubEdge2Id"] = newEdgeId;',
+            '}']
+
     @classmethod
     def modify_edges_in_html(cls, file_data, index_of_edges):
         if index_of_edges == -1:
@@ -351,3 +1330,68 @@ class PyVisWrapper:
         edges_line = f'edges = new vis.DataSet({json.dumps(edge_dict_list)});'
         file_data.insert(index_of_edges, edges_line)
 
+    @classmethod
+    def abbreviate_if_AIM_id(cls,id):
+        return id.split("-")[0] + "-..." if OTLObjectHelper.is_aim_id(id) else id
+
+    @classmethod
+    def create_special_node(cls,g,new_node_id, list_of_ids:list):
+        asset_count = len(list_of_ids)
+        naam =f"<i><b>Collectie({asset_count})</b></i>"
+        tooltip = f"Collectie({asset_count}):\n"
+        for index,identificator in enumerate(list_of_ids):
+            tooltip += f'{(index+1)}: {identificator[:cls.max_screen_name_char_count]}\n'
+
+
+        selected_color = "#CCCCCC"
+
+        color_settings = {
+            "border": "#000000",
+            "background": selected_color,
+            "highlight":
+                {
+                    "border": "#000000",
+                    "background": "#25bedd"
+                },
+            "hover": {
+                "border": "#000000",
+                "background": selected_color
+            }
+        }
+
+
+        size = 20
+        shape = 'database'  # 'diamond'
+
+        node_id = new_node_id
+        g.add_node(node_id,
+                   label=naam,
+                   shape=shape,
+                   size=size,
+                   color=color_settings,
+                   font={"multi":True})
+        g.get_node(node_id)['title'] = tooltip
+
+
+    def create_edge_inject_arguments(self, relatie):
+
+        edge_inject_arguments ={"id" : relatie.assetId.identificator,
+                    "from_id": relatie.bronAssetId.identificator,
+                    "to_id": relatie.doelAssetId.identificator,
+                    "color": self.map_relation_to_color(relatie)}
+
+        if is_directional_relation(relatie):
+            edge_inject_arguments["arrow"] = "to"
+            if (relatie.typeURI == 'https://wegenenverkeer.data.vlaanderen.be/ns/onderdeel#HeeftBetrokkene'
+                and relatie.rol is not None):
+                edge_inject_arguments["label"] = relatie.rol
+
+        return edge_inject_arguments
+
+    @classmethod
+    def replace_and_add_lines(cls,file_data, replace_index, start_line_to_replace: str,
+                              start_replacement: str, list_of_followup_lines: list[str]):
+        file_data[replace_index] = file_data[replace_index].replace(start_line_to_replace,
+                                                                    start_replacement)
+        for i, followup_line in enumerate(list_of_followup_lines):
+            file_data.insert(replace_index + i, followup_line + "\n")
